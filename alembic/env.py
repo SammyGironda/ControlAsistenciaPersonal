@@ -5,6 +5,34 @@ from alembic import context
 from app.core.config import get_settings
 from app.db.base import Base
 
+# ============================================================
+# IMPORTAR TODOS LOS MODELOS AQUÍ
+# Esto permite que Alembic detecte todos los modelos
+# ============================================================
+# --- Semana 1: Modelos base ---
+from app.features.auth.rol.models import Rol  # noqa: F401
+from app.features.employees.departamento.models import Departamento, ComplementoDep  # noqa: F401
+from app.features.employees.cargo.models import Cargo  # noqa: F401
+from app.features.employees.empleado.models import Empleado  # noqa: F401
+
+# --- Semana 2: Auth ---
+# from app.features.auth.usuario.models import Usuario
+
+# --- Semana 4: Contracts ---
+# from app.features.contracts.contrato.models import Contrato
+# from app.features.contracts.ajuste_salarial.models import AjusteSalarial
+
+# --- Semana 5-7: Attendance ---
+# from app.features.attendance.marcacion.models import Marcacion
+# from app.features.attendance.asistencia_diaria.models import AsistenciaDiaria
+# from app.features.attendance.feriados.models import DiaFestivo
+# from app.features.attendance.beneficio_cumpleanos.models import BeneficioCumpleanos
+# from app.features.attendance.justificacion.models import JustificacionAusencia
+
+# --- Semana 8: Reports ---
+# from app.features.reports.reporte.models import Reporte
+# ============================================================
+
 settings = get_settings()
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
