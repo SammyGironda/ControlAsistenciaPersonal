@@ -51,7 +51,7 @@ class Cargo(Base):
 
     # --- Relaciones ---
     departamento: Mapped["Departamento"] = relationship(back_populates="cargos")
-    # empleados: Mapped[List["Empleado"]] = relationship(back_populates="cargo")
+    empleados: Mapped[list["Empleado"]] = relationship(back_populates="cargo")
 
     def __repr__(self) -> str:
         return f"<Cargo(id={self.id}, codigo='{self.codigo}', nombre='{self.nombre}')>"

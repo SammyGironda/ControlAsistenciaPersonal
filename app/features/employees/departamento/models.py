@@ -87,7 +87,7 @@ class Departamento(Base):
 
     # --- Relaciones con otras entidades ---
     cargos: Mapped[List["Cargo"]] = relationship(back_populates="departamento")
-    # empleados: Mapped[List["Empleado"]] = relationship(back_populates="departamento")
+    empleados: Mapped[List["Empleado"]] = relationship(back_populates="departamento")
 
     def __repr__(self) -> str:
         return f"<Departamento(id={self.id}, codigo='{self.codigo}', nombre='{self.nombre}')>"

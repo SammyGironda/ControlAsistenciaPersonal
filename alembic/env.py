@@ -16,7 +16,7 @@ from app.features.employees.cargo.models import Cargo  # noqa: F401
 from app.features.employees.empleado.models import Empleado  # noqa: F401
 
 # --- Semana 2: Auth ---
-# from app.features.auth.usuario.models import Usuario
+from app.features.auth.usuario.models import Usuario  # noqa: F401
 
 # --- Semana 4: Contracts ---
 # from app.features.contracts.contrato.models import Contrato

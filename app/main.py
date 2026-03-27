@@ -54,11 +54,11 @@ def health_check():
 # ROUTERS - Se agregan por semana
 # ============================================================
 
-# --- Semana 1-2: Auth ---
-# from app.features.auth.rol.router import router as rol_router
-# from app.features.auth.usuario.router import router as usuario_router
-# app.include_router(rol_router, prefix=settings.API_PREFIX)
-# app.include_router(usuario_router, prefix=settings.API_PREFIX)
+# --- Semana 2: Auth ---
+from app.features.auth.rol.router import router as rol_router
+from app.features.auth.usuario.router import router as usuario_router
+app.include_router(rol_router, prefix=settings.API_PREFIX)
+app.include_router(usuario_router, prefix=settings.API_PREFIX)
 
 # --- Semana 3: Employees ---
 # from app.features.employees.departamento.router import router as departamento_router

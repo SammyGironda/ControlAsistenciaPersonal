@@ -15,6 +15,7 @@ from app.db.base import Base
 if TYPE_CHECKING:
     from app.features.employees.departamento.models import Departamento, ComplementoDep
     from app.features.employees.cargo.models import Cargo
+    from app.features.auth.usuario.models import Usuario
 
 
 # --- ENUMs ---
@@ -107,10 +108,12 @@ class Empleado(Base):
     cargo: Mapped["Cargo"] = relationship(back_populates="empleados")
     # complemento: Mapped["ComplementoDep"] = relationship(back_populates="empleados")
 
+    # --- Relación con Usuario (Semana 2) ---
+    usuario: Mapped[Optional["Usuario"]] = relationship(back_populates="empleado")
+
     # --- Relaciones futuras (se activan en semanas posteriores) ---
     # contratos: Mapped[List["Contrato"]] = relationship(back_populates="empleado")
     # ajustes_salariales: Mapped[List["AjusteSalarial"]] = relationship(back_populates="empleado")
-    # usuario: Mapped[Optional["Usuario"]] = relationship(back_populates="empleado")
 
     def __repr__(self) -> str:
         return f"<Empleado(id={self.id}, ci='{self.ci_numero}', nombre='{self.nombres} {self.apellidos}')>"

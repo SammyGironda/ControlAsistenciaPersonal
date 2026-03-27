@@ -34,8 +34,12 @@ python-multipart==0.0.18
 email-validator==2.2.0
 
 # ============================================================
-# SEMANA 9 ÚNICAMENTE — No instalar antes
-# Activar descomentando estas líneas en Semana 9
+# SEMANA 2: Hash de contraseñas (NO JWT aún)
+# ============================================================
+passlib[bcrypt]==1.7.4
+
+# ============================================================
+# SEMANA 9 ÚNICAMENTE — JWT
+# Activar descomentando esta línea en Semana 9
 # ============================================================
 # python-jose[cryptography]==3.3.0
-# passlib[bcrypt]==1.7.4

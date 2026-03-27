@@ -37,8 +37,8 @@ class Rol(Base):
         default=datetime.now, onupdate=datetime.now, nullable=False
     )
 
-    # --- Relaciones (Semana 2) ---
-    # usuarios: Mapped[list["Usuario"]] = relationship(back_populates="rol")
+    # --- Relaciones ---
+    usuarios: Mapped[list["Usuario"]] = relationship(back_populates="rol")
 
     def __repr__(self) -> str:
         return f"<Rol(id={self.id}, nombre='{self.nombre}')>"
