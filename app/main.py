@@ -61,6 +61,14 @@ from app.features.employees.horario.models import Horario, AsignacionHorario  # 
 from app.features.auth.rol.models import Rol  # noqa: F401
 from app.features.auth.usuario.models import Usuario  # noqa: F401
 
+# --- Semana 4: Contracts ---
+from app.features.contracts.contrato.models import Contrato, TipoContratoEnum, EstadoContratoEnum  # noqa: F401
+from app.features.contracts.ajuste_salarial.models import (  # noqa: F401
+    AjusteSalarial, DecretoIncrementoSalarial, CondicionDecreto,
+    ParametroImpuesto, MotivoAjusteEnum
+)
+
+
 # ============================================================
 # ROUTERS - Se agregan por semana
 # ============================================================
@@ -82,8 +90,10 @@ app.include_router(empleado_router, prefix=settings.API_PREFIX)
 app.include_router(horario_router, prefix=settings.API_PREFIX)
 
 # --- Semana 4: Contracts ---
-# from app.features.contracts.contrato.router import router as contrato_router
-# app.include_router(contrato_router, prefix=settings.API_PREFIX)
+from app.features.contracts.contrato.router import router as contrato_router
+from app.features.contracts.ajuste_salarial.router import router as ajuste_salarial_router
+app.include_router(contrato_router, prefix=settings.API_PREFIX)
+app.include_router(ajuste_salarial_router, prefix=settings.API_PREFIX)
 
 # --- Semana 5-7: Attendance ---
 # from app.features.attendance.router import router as attendance_router

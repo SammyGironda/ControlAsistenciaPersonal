@@ -17,6 +17,8 @@ if TYPE_CHECKING:
     from app.features.employees.cargo.models import Cargo
     from app.features.auth.usuario.models import Usuario
     from app.features.employees.horario.models import AsignacionHorario
+    from app.features.contracts.contrato.models import Contrato
+    from app.features.contracts.ajuste_salarial.models import AjusteSalarial
 
 
 # --- ENUMs ---
@@ -115,9 +117,19 @@ class Empleado(Base):
     # --- Relación con AsignacionHorario (Semana 3) ---
     asignaciones_horario: Mapped[List["AsignacionHorario"]] = relationship(back_populates="empleado")
 
-    # --- Relaciones futuras (se activan en semanas posteriores) ---
-    # contratos: Mapped[List["Contrato"]] = relationship(back_populates="empleado")
-    # ajustes_salariales: Mapped[List["AjusteSalarial"]] = relationship(back_populates="empleado")
+    # --- Relaciones con Contracts (Semana 4) ---
+    contratos: Mapped[List["Contrato"]] = relationship(
+        "Contrato",
+        back_populates="empleado",
+        foreign_keys="[Contrato.id_empleado]",
+        cascade="all, delete-orphan"
+    )
+    ajustes_salariales: Mapped[List["AjusteSalarial"]] = relationship(
+        "AjusteSalarial",
+        back_populates="empleado",
+        foreign_keys="[AjusteSalarial.id_empleado]",
+        cascade="all, delete-orphan"
+    )
 
     def __repr__(self) -> str:
         return f"<Empleado(id={self.id}, ci='{self.ci_numero}', nombre='{self.nombres} {self.apellidos}')>"

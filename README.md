@@ -81,8 +81,8 @@ Después de ejecutar el seed:
 
 - ✅ **Semana 1:** Estructura base + modelos iniciales
 - ✅ **Semana 2:** Módulo Auth (Rol + Usuario)
-- ⏳ **Semana 3:** Módulo Employees completo
-- ⏳ **Semana 4:** Módulo Contracts
+- ✅ **Semana 3:** Módulo Employees completo
+- ✅ **Semana 4:** Módulo Contracts
 - ⏳ **Semana 5:** Módulo Marcaciones
 - ⏳ **Semana 6:** Módulo Asistencia
 - ⏳ **Semana 7:** Feriados + Cumpleaños + Justificaciones
@@ -155,12 +155,3 @@ pytest --cov=app tests/
 ### Error de importación circular
 - Usar TYPE_CHECKING para imports de tipos
 - Importar modelos en strings en relationships
-
-## 👥 Contacto
-
-Para preguntas o soporte, consultar la documentación en `Informes/`
-
----
-
-**Versión:** 0.1.0  
-**Última actualización:** 2026-03-24
