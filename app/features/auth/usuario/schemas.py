@@ -9,7 +9,7 @@ IMPORTANTE:
 
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, Field, EmailStr, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict
 
 
 # ============================================================
@@ -22,7 +22,6 @@ class UsuarioCreate(BaseModel):
     password: str = Field(..., min_length=6, max_length=100, description="Contraseña (será hasheada)")
     id_rol: int = Field(..., gt=0, description="ID del rol asignado")
     id_empleado: Optional[int] = Field(None, gt=0, description="ID del empleado vinculado (NULL para usuarios externos)")
-    email: Optional[EmailStr] = None
     activo: bool = Field(default=True, description="Estado del usuario")
 
     model_config = ConfigDict(
@@ -32,7 +31,6 @@ class UsuarioCreate(BaseModel):
                 "password": "Password123!",
                 "id_rol": 2,
                 "id_empleado": 5,
-                "email": "juan.perez@empresa.com",
                 "activo": True
             }
         }
@@ -48,13 +46,12 @@ class UsuarioUpdate(BaseModel):
     password: Optional[str] = Field(None, min_length=6, max_length=100, description="Nueva contraseña")
     id_rol: Optional[int] = Field(None, gt=0)
     id_empleado: Optional[int] = Field(None, gt=0)
-    email: Optional[EmailStr] = None
     activo: Optional[bool] = None
 
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "email": "nuevo.email@empresa.com",
+                "username": "nuevo.username",
                 "activo": False
             }
         }
@@ -89,7 +86,6 @@ class UsuarioRead(BaseModel):
     username: str
     id_rol: int
     id_empleado: Optional[int]
-    email: Optional[str]
     activo: bool
     ultimo_acceso: Optional[datetime]
     created_at: datetime
@@ -105,7 +101,6 @@ class UsuarioReadWithRol(BaseModel):
     id_rol: int
     rol_nombre: str  # Nombre del rol incluido
     id_empleado: Optional[int]
-    email: Optional[str]
     activo: bool
     ultimo_acceso: Optional[datetime]
     created_at: datetime

@@ -139,7 +139,7 @@ def seed_departamentos(db):
                 db.add(area)
 
     db.commit()
-    print("✓ Departamentos organizacionales insertados.")
+    print("Departamentos organizacionales insertados.")
 
 
 def seed_cargos(db):

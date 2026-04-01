@@ -32,7 +32,7 @@ class RolCreate(BaseModel):
 class RolUpdate(BaseModel):
     """Schema para actualizar un rol existente."""
     nombre: Optional[str] = Field(None, min_length=1, max_length=50)
-    descripcion: Optional[str] = None
+    descripcion: Optional[str] = Field(None, description="Descripción del rol")
     activo: Optional[bool] = None
 
     model_config = ConfigDict(

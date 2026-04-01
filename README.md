@@ -14,7 +14,7 @@ Sistema de Recursos Humanos para Bolivia construido con FastAPI, SQLAlchemy 2.0 
 ```bash
 # Clonar el repositorio (si aplica)
 git clone [URL]
-cd v13
+cd Control_Asistencia_Personal
 
 # Instalar dependencias
 pip install -r requirements.txt

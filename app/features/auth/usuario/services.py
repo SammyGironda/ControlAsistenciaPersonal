@@ -17,6 +17,8 @@ from app.features.auth.usuario.models import Usuario
 from app.features.auth.usuario import schemas
 from app.features.auth.rol.services import get_rol
 
+from app.core.security import verify_password  # disponible por si se necesita directo
+
 
 # ============================================================
 # CRUD BÁSICO
@@ -177,7 +179,6 @@ def get_usuario_with_rol_info(db: Session, usuario_id: int) -> dict:
         "id_rol": usuario.id_rol,
         "rol_nombre": usuario.rol.nombre,
         "id_empleado": usuario.id_empleado,
-        "email": usuario.email,
         "activo": usuario.activo,
         "ultimo_acceso": usuario.ultimo_acceso,
         "created_at": usuario.created_at,

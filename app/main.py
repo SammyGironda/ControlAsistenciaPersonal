@@ -51,6 +51,17 @@ def health_check():
 
 
 # ============================================================
+# IMPORTAR TODOS LOS MODELOS PRIMERO
+# Esto asegura que SQLAlchemy pueda resolver todas las relaciones
+# ============================================================
+from app.features.employees.departamento.models import Departamento, ComplementoDep  # noqa: F401
+from app.features.employees.cargo.models import Cargo  # noqa: F401
+from app.features.employees.empleado.models import Empleado  # noqa: F401
+from app.features.employees.horario.models import Horario, AsignacionHorario  # noqa: F401
+from app.features.auth.rol.models import Rol  # noqa: F401
+from app.features.auth.usuario.models import Usuario  # noqa: F401
+
+# ============================================================
 # ROUTERS - Se agregan por semana
 # ============================================================
 
@@ -61,12 +72,14 @@ app.include_router(rol_router, prefix=settings.API_PREFIX)
 app.include_router(usuario_router, prefix=settings.API_PREFIX)
 
 # --- Semana 3: Employees ---
-# from app.features.employees.departamento.router import router as departamento_router
-# from app.features.employees.cargo.router import router as cargo_router
-# from app.features.employees.empleado.router import router as empleado_router
-# app.include_router(departamento_router, prefix=settings.API_PREFIX)
-# app.include_router(cargo_router, prefix=settings.API_PREFIX)
-# app.include_router(empleado_router, prefix=settings.API_PREFIX)
+from app.features.employees.departamento.router import router as departamento_router
+from app.features.employees.cargo.router import router as cargo_router
+from app.features.employees.empleado.router import router as empleado_router
+from app.features.employees.horario.router import router as horario_router
+app.include_router(departamento_router, prefix=settings.API_PREFIX)
+app.include_router(cargo_router, prefix=settings.API_PREFIX)
+app.include_router(empleado_router, prefix=settings.API_PREFIX)
+app.include_router(horario_router, prefix=settings.API_PREFIX)
 
 # --- Semana 4: Contracts ---
 # from app.features.contracts.contrato.router import router as contrato_router

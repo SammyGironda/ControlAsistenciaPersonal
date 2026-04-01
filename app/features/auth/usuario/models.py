@@ -11,7 +11,8 @@ from datetime import datetime
 from typing import Optional, TYPE_CHECKING
 from sqlalchemy import String, Boolean, Integer, ForeignKey, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from passlib.context import CryptContext
+from app.core.security import hash_password, verify_password
+
 
 from app.db.base import Base
 
@@ -19,9 +20,6 @@ if TYPE_CHECKING:
     from app.features.auth.rol.models import Rol
     from app.features.employees.empleado.models import Empleado
 
-
-# --- Configuración de hash para contraseñas ---
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 class Usuario(Base):
@@ -65,8 +63,7 @@ class Usuario(Base):
         comment="NULL para usuarios sin registro de empleado (ej: admin externo)"
     )
 
-    # --- Información adicional ---
-    email: Mapped[Optional[str]] = mapped_column(String(150), nullable=True)
+    # --- Estado del usuario ---
     activo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     ultimo_acceso: Mapped[Optional[datetime]] = mapped_column(nullable=True)
 
@@ -83,54 +80,10 @@ class Usuario(Base):
     def __repr__(self) -> str:
         return f"<Usuario(id={self.id}, username='{self.username}', rol_id={self.id_rol})>"
 
-    # ============================================================
-    # MÉTODOS DE UTILIDAD PARA CONTRASEÑAS
-    # ============================================================
-
-    @staticmethod
-    def hash_password(password: str) -> str:
-        """
-        Hashea una contraseña en texto plano usando bcrypt.
-
-        Args:
-            password: Contraseña en texto plano
-
-        Returns:
-            Hash bcrypt de la contraseña
-        """
-        return pwd_context.hash(password)
-
-    @staticmethod
-    def verify_password(plain_password: str, hashed_password: str) -> bool:
-        """
-        Verifica si una contraseña en texto plano coincide con el hash.
-
-        Args:
-            plain_password: Contraseña en texto plano
-            hashed_password: Hash bcrypt almacenado
-
-        Returns:
-            True si la contraseña es correcta, False si no
-        """
-        return pwd_context.verify(plain_password, hashed_password)
-
     def set_password(self, password: str) -> None:
-        """
-        Establece una nueva contraseña (la hashea automáticamente).
-
-        Args:
-            password: Nueva contraseña en texto plano
-        """
-        self.password_hash = self.hash_password(password)
+        """Hashea y guarda la contraseña usando bcrypt centralizado."""
+        self.password_hash = hash_password(password)
 
     def check_password(self, password: str) -> bool:
-        """
-        Verifica si una contraseña es correcta para este usuario.
-
-        Args:
-            password: Contraseña en texto plano a verificar
-
-        Returns:
-            True si la contraseña es correcta, False si no
-        """
-        return self.verify_password(password, self.password_hash)
+        """Verifica si la contraseña en texto plano coincide con el hash."""
+        return verify_password(password, self.password_hash)

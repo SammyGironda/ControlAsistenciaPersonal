@@ -5,7 +5,7 @@ Entidad central del sistema - datos personales y laborales.
 
 from datetime import datetime, date
 from decimal import Decimal
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING, List
 from sqlalchemy import String, Boolean, Integer, ForeignKey, Numeric, Date, Enum as SQLEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 import enum
@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from app.features.employees.departamento.models import Departamento, ComplementoDep
     from app.features.employees.cargo.models import Cargo
     from app.features.auth.usuario.models import Usuario
+    from app.features.employees.horario.models import AsignacionHorario
 
 
 # --- ENUMs ---
@@ -110,6 +111,9 @@ class Empleado(Base):
 
     # --- Relación con Usuario (Semana 2) ---
     usuario: Mapped[Optional["Usuario"]] = relationship(back_populates="empleado")
+
+    # --- Relación con AsignacionHorario (Semana 3) ---
+    asignaciones_horario: Mapped[List["AsignacionHorario"]] = relationship(back_populates="empleado")
 
     # --- Relaciones futuras (se activan en semanas posteriores) ---
     # contratos: Mapped[List["Contrato"]] = relationship(back_populates="empleado")

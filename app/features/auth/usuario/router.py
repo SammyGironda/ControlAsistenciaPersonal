@@ -34,7 +34,6 @@ def create_usuario(
     - **password**: Contraseña (mínimo 6 caracteres, será hasheada)
     - **id_rol**: ID del rol asignado
     - **id_empleado**: ID del empleado vinculado (opcional)
-    - **email**: Email del usuario (opcional)
     """
     return services.create_usuario(db, usuario)
 
