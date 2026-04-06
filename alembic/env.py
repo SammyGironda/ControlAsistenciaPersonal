@@ -22,8 +22,13 @@ from app.features.auth.usuario.models import Usuario  # noqa: F401
 from app.features.employees.horario.models import Horario, AsignacionHorario  # noqa: F401
 
 # --- Semana 4: Contracts ---
-from app.features.contracts.contrato.models import Contrato
-from app.features.contracts.ajuste_salarial.models import AjusteSalarial
+from app.features.contracts.contrato.models import Contrato  # noqa: F401
+from app.features.contracts.ajuste_salarial.models import (  # noqa: F401
+    AjusteSalarial,
+    DecretoIncrementoSalarial,
+    CondicionDecreto,
+    ParametroImpuesto
+)
 
 # --- Semana 5-7: Attendance ---
 # from app.features.attendance.marcacion.models import Marcacion

@@ -9,12 +9,17 @@ Sistema de Recursos Humanos para Bolivia construido con FastAPI, SQLAlchemy 2.0 
 - PostgreSQL 14+
 - Git
 
-### 2. Instalación
+### 2. Instalación, creacion de entorno virtual y dependencias
 
 ```bash
 # Clonar el repositorio (si aplica)
 git clone [URL]
 cd Control_Asistencia_Personal
+
+# Crear entorno virtual (opcional pero recomendado)
+python -m venv venv     # Windows
+source venv/bin/activate  # Linux/Mac
+venv\Scripts\activate   # Windows
 
 # Instalar dependencias
 pip install -r requirements.txt
@@ -68,7 +73,7 @@ v13/
 └── InformacionContexto/# Archivos de referencia
 ```
 
-## 🔐 Usuario Admin por defecto
+## Usuario Admin por defecto
 
 Después de ejecutar el seed:
 - **Username:** admin
@@ -76,6 +81,8 @@ Después de ejecutar el seed:
 - **Rol:** admin
 
 ⚠️ **IMPORTANTE:** Cambiar la contraseña en producción
+
+**NOTA:** El email del usuario se obtiene desde `usuario.empleado.email` (campo en tabla `empleado`), no desde `usuario` directamente.
 
 ## 📋 Progreso del Proyecto
 
