@@ -31,6 +31,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# I 
 
 # --- Endpoint de salud ---
 @app.get("/", tags=["Health"])
@@ -75,6 +76,9 @@ from app.features.attendance.marcacion.models import (  # noqa: F401
     TipoIncidenciaEnum, EstadoResolucionEnum
 )
 
+# --- Semana 6: Attendance - Asistencia Diaria ---
+from app.features.attendance.asistencia_diaria.models import AsistenciaDiaria, EstadoDiaEnum  # noqa: F401
+
 
 # ============================================================
 # ROUTERS - Se agregan por semana
@@ -106,6 +110,10 @@ app.include_router(ajuste_salarial_router, prefix=settings.API_PREFIX)
 from app.features.attendance.marcacion.router import router as marcacion_router
 app.include_router(marcacion_router, prefix=settings.API_PREFIX)
 
+# --- Semana 6: Attendance - Asistencia Diaria ---
+from app.features.attendance.asistencia_diaria.router import router as asistencia_diaria_router
+app.include_router(asistencia_diaria_router, prefix=settings.API_PREFIX)
+
 # --- Semana 5-7: Attendance ---
 # from app.features.attendance.router import router as attendance_router
 # app.include_router(attendance_router, prefix=settings.API_PREFIX)
@@ -113,3 +121,45 @@ app.include_router(marcacion_router, prefix=settings.API_PREFIX)
 # --- Semana 8: Reports ---
 # from app.features.reports.reporte.router import router as reporte_router
 # app.include_router(reporte_router, prefix=settings.API_PREFIX)
+
+
+# ============================================================
+# WORKER AUTOMÁTICO - Semana 6
+# ============================================================
+from app.features.attendance.worker import start_scheduler, shutdown_scheduler, get_scheduler_status
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Iniciar worker de asistencia diaria al arrancar la aplicación."""
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info("🚀 Iniciando aplicación RRHH Bolivia MVP...")
+    
+    # Iniciar scheduler de asistencia diaria
+    try:
+        start_scheduler()
+        logger.info("✅ Worker de asistencia diaria iniciado correctamente")
+    except Exception as e:
+        logger.error(f"❌ Error al iniciar worker: {str(e)}", exc_info=True)
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Detener worker al apagar la aplicación."""
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info("🛑 Deteniendo aplicación...")
+    
+    # Detener scheduler
+    try:
+        shutdown_scheduler()
+        logger.info("✅ Worker de asistencia diaria detenido correctamente")
+    except Exception as e:
+        logger.error(f"❌ Error al detener worker: {str(e)}", exc_info=True)
+
+
+@app.get("/worker/status", tags=["Worker"])
+def worker_status():
+    """Endpoint para verificar el estado del worker de asistencia."""
+    return get_scheduler_status()

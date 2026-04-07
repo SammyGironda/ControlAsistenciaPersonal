@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from app.features.contracts.contrato.models import Contrato
     from app.features.contracts.ajuste_salarial.models import AjusteSalarial
     from app.features.attendance.marcacion.models import Marcacion
+    from app.features.attendance.asistencia_diaria.models import AsistenciaDiaria  # Semana 6
 
 
 # --- ENUMs ---
@@ -136,6 +137,14 @@ class Empleado(Base):
     marcaciones: Mapped[List["Marcacion"]] = relationship(
         "Marcacion",
         back_populates="empleado",
+        cascade="all, delete-orphan"
+    )
+    
+    # --- Relaciones con Asistencia Diaria (Semana 6) ---
+    asistencias: Mapped[List["AsistenciaDiaria"]] = relationship(
+        "AsistenciaDiaria",
+        back_populates="empleado",
+        foreign_keys="[AsistenciaDiaria.id_empleado]",
         cascade="all, delete-orphan"
     )
 
