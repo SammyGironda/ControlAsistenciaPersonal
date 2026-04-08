@@ -15,7 +15,7 @@ from app.db.base import Base
 if TYPE_CHECKING:
     from app.features.employees.empleado.models import Empleado
     from app.features.attendance.marcacion.models import Marcacion
-    # Semana 7: from app.features.attendance.justificacion.models import JustificacionAusencia
+    from app.features.attendance.justificacion.models import JustificacionAusencia
 
 
 # --- ENUM ---
@@ -88,10 +88,10 @@ class AsistenciaDiaria(Base):
         nullable=True
     )
     
-    # Semana 7: JustificacionAusencia (nullable hasta que se cree la tabla)
+    # Semana 7: JustificacionAusencia - FK se agrega en migración ALTER TABLE
     id_justificacion: Mapped[Optional[int]] = mapped_column(
         Integer,
-        # ForeignKey("rrhh.justificacion_ausencia.id", ondelete="SET NULL"),  # Activar en Semana 7
+        # ForeignKey se agrega en la migración después de crear justificacion_ausencia
         nullable=True
     )
     
@@ -167,12 +167,13 @@ class AsistenciaDiaria(Base):
         lazy="select"
     )
     
-    # Semana 7: descomentar cuando exista JustificacionAusencia
-    # justificacion: Mapped[Optional["JustificacionAusencia"]] = relationship(
-    #     "JustificacionAusencia",
-    #     foreign_keys=[id_justificacion],
-    #     lazy="select"
-    # )
+    # Semana 7: Relación con JustificacionAusencia
+    justificacion: Mapped[Optional["JustificacionAusencia"]] = relationship(
+        "JustificacionAusencia",
+        foreign_keys=[id_justificacion],
+        back_populates="asistencias",
+        lazy="select"
+    )
     
     def __repr__(self) -> str:
         return (

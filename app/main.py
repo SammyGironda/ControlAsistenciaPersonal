@@ -79,6 +79,16 @@ from app.features.attendance.marcacion.models import (  # noqa: F401
 # --- Semana 6: Attendance - Asistencia Diaria ---
 from app.features.attendance.asistencia_diaria.models import AsistenciaDiaria, EstadoDiaEnum  # noqa: F401
 
+# --- Semana 7: Attendance - Feriados, Justificaciones y Vacaciones ---
+from app.features.attendance.feriados.models import DiaFestivo, AmbitoFestivoEnum  # noqa: F401
+from app.features.attendance.beneficio_cumpleanos.models import BeneficioCumpleanos  # noqa: F401
+from app.features.attendance.justificacion.models import (  # noqa: F401
+    JustificacionAusencia, TipoJustificacionEnum, TipoPermisoEnum, EstadoAprobacionEnum
+)
+from app.features.attendance.vacaciones.models import (  # noqa: F401
+    Vacacion, DetalleVacacion, TipoVacacionEnum, EstadoDetalleVacacionEnum
+)
+
 
 # ============================================================
 # ROUTERS - Se agregan por semana
@@ -114,9 +124,15 @@ app.include_router(marcacion_router, prefix=settings.API_PREFIX)
 from app.features.attendance.asistencia_diaria.router import router as asistencia_diaria_router
 app.include_router(asistencia_diaria_router, prefix=settings.API_PREFIX)
 
-# --- Semana 5-7: Attendance ---
-# from app.features.attendance.router import router as attendance_router
-# app.include_router(attendance_router, prefix=settings.API_PREFIX)
+# --- Semana 7: Attendance - Feriados, Justificaciones y Vacaciones ---
+from app.features.attendance.feriados.router import router as feriados_router
+from app.features.attendance.beneficio_cumpleanos.router import router as beneficio_cumpleanos_router
+from app.features.attendance.justificacion.router import router as justificacion_router
+from app.features.attendance.vacaciones.router import router as vacaciones_router
+app.include_router(feriados_router, prefix=settings.API_PREFIX)
+app.include_router(beneficio_cumpleanos_router, prefix=settings.API_PREFIX)
+app.include_router(justificacion_router, prefix=settings.API_PREFIX)
+app.include_router(vacaciones_router, prefix=settings.API_PREFIX)
 
 # --- Semana 8: Reports ---
 # from app.features.reports.reporte.router import router as reporte_router

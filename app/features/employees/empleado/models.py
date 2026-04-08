@@ -20,7 +20,10 @@ if TYPE_CHECKING:
     from app.features.contracts.contrato.models import Contrato
     from app.features.contracts.ajuste_salarial.models import AjusteSalarial
     from app.features.attendance.marcacion.models import Marcacion
-    from app.features.attendance.asistencia_diaria.models import AsistenciaDiaria  # Semana 6
+    from app.features.attendance.asistencia_diaria.models import AsistenciaDiaria
+    from app.features.attendance.justificacion.models import JustificacionAusencia
+    from app.features.attendance.beneficio_cumpleanos.models import BeneficioCumpleanos
+    from app.features.attendance.vacaciones.models import Vacacion
 
 
 # --- ENUMs ---
@@ -145,6 +148,26 @@ class Empleado(Base):
         "AsistenciaDiaria",
         back_populates="empleado",
         foreign_keys="[AsistenciaDiaria.id_empleado]",
+        cascade="all, delete-orphan"
+    )
+
+    # --- Relaciones con módulos de Semana 7 ---
+    justificaciones: Mapped[List["JustificacionAusencia"]] = relationship(
+        "JustificacionAusencia",
+        back_populates="empleado",
+        foreign_keys="[JustificacionAusencia.id_empleado]",
+        cascade="all, delete-orphan"
+    )
+
+    beneficios_cumpleanos: Mapped[List["BeneficioCumpleanos"]] = relationship(
+        "BeneficioCumpleanos",
+        back_populates="empleado",
+        cascade="all, delete-orphan"
+    )
+
+    vacaciones: Mapped[List["Vacacion"]] = relationship(
+        "Vacacion",
+        back_populates="empleado",
         cascade="all, delete-orphan"
     )
 
