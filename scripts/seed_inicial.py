@@ -216,7 +216,6 @@ def seed_usuarios(db):
         username="admin",
         id_rol=rol_admin.id,
         id_empleado=None,  # Usuario admin no está vinculado a un empleado
-        email="admin@rrhh.com",
         activo=True
     )
     usuario.set_password("admin123")  # Contraseña inicial, cambiar en producción

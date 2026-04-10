@@ -5,29 +5,24 @@ CRUD completo con lógica de validación y consultas especializadas.
 
 from datetime import date
 from typing import List, Optional
-from sqlalchemy import select, and_, extract
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import and_, extract, or_
+from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 
 from app.features.attendance.feriados.models import DiaFestivo, AmbitoFestivoEnum
 from app.features.attendance.feriados.schemas import DiaFestivoCreate, DiaFestivoUpdate
 
 
-async def crear_dia_festivo(db: AsyncSession, data: DiaFestivoCreate) -> DiaFestivo:
+def crear_dia_festivo(db: Session, data: DiaFestivoCreate) -> DiaFestivo:
     """
     Crea un nuevo feriado.
     Valida que no exista un feriado con la misma (fecha, ambito, codigo_departamento).
     """
-    # Verificar duplicados
-    stmt = select(DiaFestivo).where(
-        and_(
-            DiaFestivo.fecha == data.fecha,
-            DiaFestivo.ambito == data.ambito,
-            DiaFestivo.codigo_departamento == data.codigo_departamento
-        )
-    )
-    result = await db.execute(stmt)
-    existente = result.scalar_one_or_none()
+    existente = db.query(DiaFestivo).filter(
+        DiaFestivo.fecha == data.fecha,
+        DiaFestivo.ambito == data.ambito,
+        DiaFestivo.codigo_departamento == data.codigo_departamento,
+    ).first()
 
     if existente:
         raise HTTPException(
@@ -45,17 +40,15 @@ async def crear_dia_festivo(db: AsyncSession, data: DiaFestivoCreate) -> DiaFest
     )
 
     db.add(nuevo_feriado)
-    await db.commit()
-    await db.refresh(nuevo_feriado)
+    db.commit()
+    db.refresh(nuevo_feriado)
 
     return nuevo_feriado
 
 
-async def obtener_dia_festivo(db: AsyncSession, id: int) -> DiaFestivo:
+def obtener_dia_festivo(db: Session, id: int) -> DiaFestivo:
     """Obtiene un feriado por ID."""
-    stmt = select(DiaFestivo).where(DiaFestivo.id == id)
-    result = await db.execute(stmt)
-    feriado = result.scalar_one_or_none()
+    feriado = db.query(DiaFestivo).filter(DiaFestivo.id == id).first()
 
     if not feriado:
         raise HTTPException(
@@ -66,8 +59,8 @@ async def obtener_dia_festivo(db: AsyncSession, id: int) -> DiaFestivo:
     return feriado
 
 
-async def listar_dias_festivos(
-    db: AsyncSession,
+def listar_dias_festivos(
+    db: Session,
     activo: Optional[bool] = None,
     ambito: Optional[AmbitoFestivoEnum] = None,
     anio: Optional[int] = None,
@@ -84,34 +77,26 @@ async def listar_dias_festivos(
         anio: Filtrar por año
         codigo_departamento: Filtrar por código de departamento
     """
-    stmt = select(DiaFestivo)
+    query = db.query(DiaFestivo)
 
     # Aplicar filtros
-    condiciones = []
-
     if activo is not None:
-        condiciones.append(DiaFestivo.activo == activo)
+        query = query.filter(DiaFestivo.activo == activo)
 
     if ambito:
-        condiciones.append(DiaFestivo.ambito == ambito)
+        query = query.filter(DiaFestivo.ambito == ambito)
 
     if anio:
-        condiciones.append(extract('year', DiaFestivo.fecha) == anio)
+        query = query.filter(extract("year", DiaFestivo.fecha) == anio)
 
     if codigo_departamento:
-        condiciones.append(DiaFestivo.codigo_departamento == codigo_departamento)
+        query = query.filter(DiaFestivo.codigo_departamento == codigo_departamento)
 
-    if condiciones:
-        stmt = stmt.where(and_(*condiciones))
-
-    stmt = stmt.order_by(DiaFestivo.fecha.desc()).offset(skip).limit(limit)
-
-    result = await db.execute(stmt)
-    return list(result.scalars().all())
+    return query.order_by(DiaFestivo.fecha.desc()).offset(skip).limit(limit).all()
 
 
-async def obtener_feriados_aplicables(
-    db: AsyncSession,
+def obtener_feriados_aplicables(
+    db: Session,
     fecha: date,
     codigo_departamento: str
 ) -> List[DiaFestivo]:
@@ -121,31 +106,26 @@ async def obtener_feriados_aplicables(
     Retorna feriados NACIONALES o DEPARTAMENTALES que aplican al departamento dado.
     Esta función es usada por el worker de asistencia_diaria.
     """
-    stmt = select(DiaFestivo).where(
-        and_(
-            DiaFestivo.fecha == fecha,
-            DiaFestivo.activo == True,
-            (
-                (DiaFestivo.ambito == AmbitoFestivoEnum.NACIONAL) |
-                (
-                    (DiaFestivo.ambito == AmbitoFestivoEnum.DEPARTAMENTAL) &
-                    (DiaFestivo.codigo_departamento == codigo_departamento)
-                )
-            )
-        )
-    )
-
-    result = await db.execute(stmt)
-    return list(result.scalars().all())
+    return db.query(DiaFestivo).filter(
+        DiaFestivo.fecha == fecha,
+        DiaFestivo.activo.is_(True),
+        or_(
+            DiaFestivo.ambito == AmbitoFestivoEnum.NACIONAL,
+            and_(
+                DiaFestivo.ambito == AmbitoFestivoEnum.DEPARTAMENTAL,
+                DiaFestivo.codigo_departamento == codigo_departamento,
+            ),
+        ),
+    ).all()
 
 
-async def actualizar_dia_festivo(
-    db: AsyncSession,
+def actualizar_dia_festivo(
+    db: Session,
     id: int,
     data: DiaFestivoUpdate
 ) -> DiaFestivo:
     """Actualiza un feriado existente."""
-    feriado = await obtener_dia_festivo(db, id)
+    feriado = obtener_dia_festivo(db, id)
 
     # Aplicar cambios
     if data.fecha is not None:
@@ -159,32 +139,32 @@ async def actualizar_dia_festivo(
     if data.activo is not None:
         feriado.activo = data.activo
 
-    await db.commit()
-    await db.refresh(feriado)
+    db.commit()
+    db.refresh(feriado)
 
     return feriado
 
 
-async def eliminar_dia_festivo(db: AsyncSession, id: int) -> DiaFestivo:
+def eliminar_dia_festivo(db: Session, id: int) -> DiaFestivo:
     """
     Soft delete: marca el feriado como inactivo.
     Los feriados históricos deben conservarse para auditoría.
     """
-    feriado = await obtener_dia_festivo(db, id)
+    feriado = obtener_dia_festivo(db, id)
     feriado.activo = False
 
-    await db.commit()
-    await db.refresh(feriado)
+    db.commit()
+    db.refresh(feriado)
 
     return feriado
 
 
-async def eliminar_permanente(db: AsyncSession, id: int) -> None:
+def eliminar_permanente(db: Session, id: int) -> None:
     """
     Hard delete: Elimina permanentemente el feriado.
     Solo usar si el feriado fue creado por error y no hay datos relacionados.
     """
-    feriado = await obtener_dia_festivo(db, id)
+    feriado = obtener_dia_festivo(db, id)
 
-    await db.delete(feriado)
-    await db.commit()
+    db.delete(feriado)
+    db.commit()

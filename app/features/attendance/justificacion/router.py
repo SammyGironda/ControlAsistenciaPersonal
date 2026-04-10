@@ -2,10 +2,10 @@
 Router para JustificacionAusencia - Endpoints REST para gestión de permisos y licencias.
 """
 
-from datetime import datetime
+from datetime import date
 from typing import List, Optional
 from fastapi import APIRouter, Depends, Query, status
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.features.attendance.justificacion import services
@@ -27,9 +27,9 @@ router = APIRouter(prefix="/justificaciones", tags=["Justificaciones de Ausencia
     status_code=status.HTTP_201_CREATED,
     summary="Crear nueva justificación de ausencia"
 )
-async def crear_justificacion(
+def crear_justificacion(
     data: JustificacionAusenciaCreate,
-    db: AsyncSession = Depends(get_db)
+    db: Session = Depends(get_db)
 ):
     """
     Crea una nueva solicitud de permiso, licencia o vacación por horas.
@@ -41,7 +41,7 @@ async def crear_justificacion(
 
     **Estado inicial:** pendiente (requiere aprobación)
     """
-    return await services.crear_justificacion(db, data)
+    return services.crear_justificacion(db, data)
 
 
 @router.get(
@@ -49,12 +49,12 @@ async def crear_justificacion(
     response_model=JustificacionAusenciaResponse,
     summary="Obtener justificación por ID"
 )
-async def obtener_justificacion(
+def obtener_justificacion(
     id: int,
-    db: AsyncSession = Depends(get_db)
+    db: Session = Depends(get_db)
 ):
     """Obtiene una justificación específica por su ID."""
-    return await services.obtener_justificacion(db, id)
+    return services.obtener_justificacion(db, id)
 
 
 @router.get(
@@ -62,15 +62,15 @@ async def obtener_justificacion(
     response_model=List[JustificacionAusenciaResponse],
     summary="Listar justificaciones con filtros"
 )
-async def listar_justificaciones(
+def listar_justificaciones(
     id_empleado: Optional[int] = Query(None, description="Filtrar por empleado"),
     tipo_justificacion: Optional[TipoJustificacionEnum] = Query(None, description="Filtrar por tipo"),
     estado_aprobacion: Optional[EstadoAprobacionEnum] = Query(None, description="Filtrar por estado"),
-    fecha_desde: Optional[datetime] = Query(None, description="Filtrar desde fecha"),
-    fecha_hasta: Optional[datetime] = Query(None, description="Filtrar hasta fecha"),
+    fecha_desde: Optional[date] = Query(None, description="Filtrar desde fecha"),
+    fecha_hasta: Optional[date] = Query(None, description="Filtrar hasta fecha"),
     skip: int = Query(0, ge=0, description="Registros a omitir"),
     limit: int = Query(100, ge=1, le=500, description="Límite de registros"),
-    db: AsyncSession = Depends(get_db)
+    db: Session = Depends(get_db)
 ):
     """
     Lista justificaciones con filtros opcionales.
@@ -81,7 +81,7 @@ async def listar_justificaciones(
     - `estado_aprobacion`: pendiente, aprobado, rechazado
     - `fecha_desde` y `fecha_hasta`: rango de fechas
     """
-    return await services.listar_justificaciones(
+    return services.listar_justificaciones(
         db,
         id_empleado=id_empleado,
         tipo_justificacion=tipo_justificacion,
@@ -98,17 +98,17 @@ async def listar_justificaciones(
     response_model=List[JustificacionAusenciaResponse],
     summary="Listar justificaciones pendientes de aprobación"
 )
-async def listar_pendientes(
+def listar_pendientes(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
-    db: AsyncSession = Depends(get_db)
+    db: Session = Depends(get_db)
 ):
     """
     Lista todas las justificaciones pendientes de aprobación.
 
     **Útil para supervisores y RRHH** para revisar solicitudes.
     """
-    return await services.listar_pendientes_de_aprobacion(db, skip, limit)
+    return services.listar_pendientes_de_aprobacion(db, skip, limit)
 
 
 @router.post(
@@ -116,10 +116,10 @@ async def listar_pendientes(
     response_model=JustificacionAusenciaResponse,
     summary="Aprobar o rechazar justificación"
 )
-async def aprobar_rechazar(
+def aprobar_rechazar(
     id: int,
     data: AprobacionRequest,
-    db: AsyncSession = Depends(get_db)
+    db: Session = Depends(get_db)
 ):
     """
     Aprueba o rechaza una justificación pendiente.
@@ -134,7 +134,7 @@ async def aprobar_rechazar(
     - Registra fecha de aprobación
     - Registra quién aprobó/rechazó
     """
-    return await services.aprobar_o_rechazar(db, id, data)
+    return services.aprobar_o_rechazar(db, id, data)
 
 
 @router.put(
@@ -142,10 +142,10 @@ async def aprobar_rechazar(
     response_model=JustificacionAusenciaResponse,
     summary="Actualizar justificación"
 )
-async def actualizar_justificacion(
+def actualizar_justificacion(
     id: int,
     data: JustificacionAusenciaUpdate,
-    db: AsyncSession = Depends(get_db)
+    db: Session = Depends(get_db)
 ):
     """
     Actualiza una justificación existente.
@@ -153,7 +153,7 @@ async def actualizar_justificacion(
     **Restricción:** Solo se puede actualizar si está en estado 'pendiente'.
     Justificaciones aprobadas o rechazadas no se pueden modificar.
     """
-    return await services.actualizar_justificacion(db, id, data)
+    return services.actualizar_justificacion(db, id, data)
 
 
 @router.delete(
@@ -161,14 +161,14 @@ async def actualizar_justificacion(
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Eliminar justificación"
 )
-async def eliminar_justificacion(
+def eliminar_justificacion(
     id: int,
-    db: AsyncSession = Depends(get_db)
+    db: Session = Depends(get_db)
 ):
     """
     Elimina una justificación.
 
     **Restricción:** Solo se puede eliminar si está en estado 'pendiente'.
     """
-    await services.eliminar_justificacion(db, id)
+    services.eliminar_justificacion(db, id)
     return None

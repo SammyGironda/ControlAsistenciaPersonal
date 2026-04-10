@@ -6,7 +6,7 @@ Incluye cálculo automático de retrasos, minutos trabajados y tipo de día.
 from datetime import date, datetime, time, timedelta
 from typing import Optional, List
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import and_, func, or_
+from sqlalchemy import and_, func, or_, text
 from fastapi import HTTPException, status
 
 from app.features.attendance.asistencia_diaria.models import AsistenciaDiaria, EstadoDiaEnum
@@ -17,6 +17,8 @@ from app.features.employees.empleado.models import Empleado
 from app.features.employees.cargo.models import Cargo
 from app.features.employees.horario.models import Horario, AsignacionHorario
 from app.features.attendance.marcacion.models import Marcacion, TipoMarcacionEnum
+from app.features.attendance.feriados.models import DiaFestivo, AmbitoFestivoEnum
+from app.features.attendance.justificacion.models import JustificacionAusencia, EstadoAprobacionEnum, TipoJustificacionEnum
 
 
 # ============================================================
@@ -209,7 +211,10 @@ def calcular_asistencia_dia(
     
     horario = asignacion.horario
     
-    # PASO 3: Verificar si es día de descanso según horario
+    # PASO 3: Verificar si hay justificación aprobada del día
+    justificacion_aprobada = _obtener_justificacion_aprobada_dia(db, id_empleado, fecha)
+
+    # PASO 4: Verificar si es día de descanso según horario
     dia_semana = fecha.weekday()  # 0=lunes, 6=domingo
     dias_laborables = _parse_dias_laborables(horario.dias_laborables)
     
@@ -223,20 +228,25 @@ def calcular_asistencia_dia(
             minutos_retraso=0,
             minutos_trabajados=0
         )
-    
-    # PASO 4: Verificar si es feriado (Semana 7 - por ahora skip)
-    # TODO Semana 7: Consultar tabla dia_festivo
-    # es_feriado = _verificar_feriado(db, fecha, empleado.id_departamento)
-    # if es_feriado:
-    #     marcaciones = _obtener_marcaciones_dia(db, id_empleado, fecha)
-    #     trabajo_en_feriado = len(marcaciones) > 0
-    #     return _crear_o_actualizar_asistencia(
-    #         db=db, id_empleado=id_empleado, fecha=fecha,
-    #         tipo_dia=EstadoDiaEnum.feriado,
-    #         trabajo_en_feriado=trabajo_en_feriado
-    #     )
-    
-    # PASO 5: Verificar si es cargo de confianza
+
+    # PASO 5: Verificar si es feriado
+    es_feriado = _es_feriado(db, fecha, empleado.complemento_dep)
+    if es_feriado:
+        marcaciones_feriado = _obtener_marcaciones_dia(db, id_empleado, fecha)
+        trabajo_en_feriado = len(marcaciones_feriado) > 0
+        return _crear_o_actualizar_asistencia(
+            db=db,
+            id_empleado=id_empleado,
+            fecha=fecha,
+            tipo_dia=EstadoDiaEnum.feriado,
+            minutos_retraso=0,
+            minutos_trabajados=0,
+            id_justificacion=justificacion_aprobada.id if justificacion_aprobada else None,
+            horas_permiso_usadas=float(justificacion_aprobada.total_horas_permiso) if justificacion_aprobada and justificacion_aprobada.total_horas_permiso else 0.0,
+            trabajo_en_feriado=trabajo_en_feriado,
+        )
+
+    # PASO 6: Verificar si es cargo de confianza
     if cargo.es_cargo_confianza:
         # Cargo de confianza: exento de marcación
         return _crear_o_actualizar_asistencia(
@@ -245,25 +255,79 @@ def calcular_asistencia_dia(
             fecha=fecha,
             tipo_dia=EstadoDiaEnum.presente_exento,
             minutos_retraso=0,
-            minutos_trabajados=0
+            minutos_trabajados=0,
+            id_justificacion=justificacion_aprobada.id if justificacion_aprobada else None,
+            horas_permiso_usadas=float(justificacion_aprobada.total_horas_permiso) if justificacion_aprobada and justificacion_aprobada.total_horas_permiso else 0.0,
         )
-    
-    # PASO 6: Buscar marcaciones del día
+
+    # PASO 7: Buscar marcaciones del día
     marcaciones = _obtener_marcaciones_dia(db, id_empleado, fecha)
     marcacion_entrada = next((m for m in marcaciones if m.tipo_marcacion == TipoMarcacionEnum.ENTRADA), None)
     marcacion_salida = next((m for m in marcaciones if m.tipo_marcacion == TipoMarcacionEnum.SALIDA), None)
-    
-    # PASO 7: Calcular según marcaciones
+
+    # PASO 8: Resolver por justificación aprobada antes de ausente
+    if justificacion_aprobada:
+        if justificacion_aprobada.tipo_justificacion == TipoJustificacionEnum.licencia_medica_accidente:
+            return _crear_o_actualizar_asistencia(
+                db=db,
+                id_empleado=id_empleado,
+                fecha=fecha,
+                tipo_dia=EstadoDiaEnum.licencia_medica,
+                minutos_retraso=0,
+                minutos_trabajados=0,
+                id_justificacion=justificacion_aprobada.id,
+                horas_permiso_usadas=float(justificacion_aprobada.total_horas_permiso) if justificacion_aprobada.total_horas_permiso else 0.0,
+            )
+
+        if justificacion_aprobada.es_por_horas and marcacion_entrada and marcacion_salida:
+            minutos_retraso = _calcular_minutos_retraso(
+                hora_entrada_marcada=marcacion_entrada.fecha_hora_marcacion.time(),
+                hora_entrada_esperada=horario.hora_entrada,
+                tolerancia_minutos=horario.tolerancia_minutos,
+            )
+            minutos_trabajados = _calcular_minutos_trabajados(
+                hora_entrada=marcacion_entrada.fecha_hora_marcacion,
+                hora_salida=marcacion_salida.fecha_hora_marcacion,
+            )
+            return _crear_o_actualizar_asistencia(
+                db=db,
+                id_empleado=id_empleado,
+                fecha=fecha,
+                id_marcacion_entrada=marcacion_entrada.id,
+                id_marcacion_salida=marcacion_salida.id,
+                id_justificacion=justificacion_aprobada.id,
+                tipo_dia=EstadoDiaEnum.permiso_parcial,
+                minutos_retraso=minutos_retraso,
+                minutos_trabajados=minutos_trabajados,
+                horas_permiso_usadas=float(justificacion_aprobada.total_horas_permiso) if justificacion_aprobada.total_horas_permiso else 0.0,
+            )
+
+        if not marcacion_entrada and not marcacion_salida:
+            tipo_justif = justificacion_aprobada.tipo_justificacion
+            tipo_dia = EstadoDiaEnum.licencia_medica if tipo_justif == TipoJustificacionEnum.licencia_medica_accidente else EstadoDiaEnum.permiso_parcial
+            return _crear_o_actualizar_asistencia(
+                db=db,
+                id_empleado=id_empleado,
+                fecha=fecha,
+                tipo_dia=tipo_dia,
+                minutos_retraso=0,
+                minutos_trabajados=0,
+                id_justificacion=justificacion_aprobada.id,
+                horas_permiso_usadas=float(justificacion_aprobada.total_horas_permiso) if justificacion_aprobada.total_horas_permiso else 0.0,
+            )
+
+    # PASO 9: Calcular según marcaciones
     if not marcacion_entrada and not marcacion_salida:
         # Sin marcaciones: AUSENTE
-        # TODO Semana 7: Verificar justificación antes de marcar ausente
         return _crear_o_actualizar_asistencia(
             db=db,
             id_empleado=id_empleado,
             fecha=fecha,
             tipo_dia=EstadoDiaEnum.ausente,
             minutos_retraso=0,
-            minutos_trabajados=0
+            minutos_trabajados=0,
+            id_justificacion=justificacion_aprobada.id if justificacion_aprobada else None,
+            horas_permiso_usadas=float(justificacion_aprobada.total_horas_permiso) if justificacion_aprobada and justificacion_aprobada.total_horas_permiso else 0.0,
         )
     
     if marcacion_entrada and not marcacion_salida:
@@ -273,9 +337,11 @@ def calcular_asistencia_dia(
             id_empleado=id_empleado,
             fecha=fecha,
             id_marcacion_entrada=marcacion_entrada.id,
+            id_justificacion=justificacion_aprobada.id if justificacion_aprobada else None,
             tipo_dia=EstadoDiaEnum.ausente,
             minutos_retraso=0,
             minutos_trabajados=0,
+            horas_permiso_usadas=float(justificacion_aprobada.total_horas_permiso) if justificacion_aprobada and justificacion_aprobada.total_horas_permiso else 0.0,
             observacion="Marcación incompleta: solo tiene entrada"
         )
     
@@ -298,9 +364,11 @@ def calcular_asistencia_dia(
             fecha=fecha,
             id_marcacion_entrada=marcacion_entrada.id,
             id_marcacion_salida=marcacion_salida.id,
+            id_justificacion=justificacion_aprobada.id if justificacion_aprobada else None,
             tipo_dia=EstadoDiaEnum.presente,
             minutos_retraso=minutos_retraso,
-            minutos_trabajados=minutos_trabajados
+            minutos_trabajados=minutos_trabajados,
+            horas_permiso_usadas=float(justificacion_aprobada.total_horas_permiso) if justificacion_aprobada and justificacion_aprobada.total_horas_permiso else 0.0,
         )
     
     # Caso edge: solo salida sin entrada (raro pero posible)
@@ -309,9 +377,11 @@ def calcular_asistencia_dia(
         id_empleado=id_empleado,
         fecha=fecha,
         id_marcacion_salida=marcacion_salida.id if marcacion_salida else None,
+        id_justificacion=justificacion_aprobada.id if justificacion_aprobada else None,
         tipo_dia=EstadoDiaEnum.ausente,
         minutos_retraso=0,
         minutos_trabajados=0,
+        horas_permiso_usadas=float(justificacion_aprobada.total_horas_permiso) if justificacion_aprobada and justificacion_aprobada.total_horas_permiso else 0.0,
         observacion="Marcación incompleta: solo tiene salida"
     )
 
@@ -375,27 +445,64 @@ def _obtener_marcaciones_dia(db: Session, id_empleado: int, fecha: date) -> List
     ).order_by(Marcacion.fecha_hora_marcacion).all()
 
 
-def _parse_dias_laborables(dias_str: str) -> List[int]:
+def _parse_dias_laborables(dias_str: object) -> List[int]:
     """
-    Parsea string de días laborables a lista de integers.
-    Ejemplo: "L-V" → [0, 1, 2, 3, 4]
-    Ejemplo: "L-S" → [0, 1, 2, 3, 4, 5]
+    Parsea días laborables a índices Python de semana (0=lunes, 6=domingo).
+
+    Soporta:
+    - Lista JSON: [1, 2, 3, 4, 5]  (1=lunes ... 7=domingo)
+    - String de rango: "L-V"
+    - String por lista: "L,MI,V"
     """
-    # Mapeo de letras a números (0=lunes, 6=domingo)
+    dias_default = [0, 1, 2, 3, 4]
+
+    if dias_str is None:
+        return dias_default
+
+    if isinstance(dias_str, (list, tuple, set)):
+        dias = []
+        for item in dias_str:
+            try:
+                numero = int(item)
+            except (TypeError, ValueError):
+                continue
+            if 1 <= numero <= 7:
+                dias.append(numero - 1)
+        return sorted(set(dias)) or dias_default
+
+    if not isinstance(dias_str, str):
+        return dias_default
+
+    valor = dias_str.strip().upper()
+    if not valor:
+        return dias_default
+
     dia_map = {
-        "L": 0, "M": 1, "MI": 2, "J": 3, "V": 4, "S": 5, "D": 6
+        "L": 0,
+        "M": 1,
+        "MI": 2,
+        "J": 3,
+        "V": 4,
+        "S": 5,
+        "D": 6,
     }
-    
-    if "-" in dias_str:
-        # Rango: "L-V"
-        inicio_str, fin_str = dias_str.split("-")
-        inicio = dia_map.get(inicio_str.strip(), 0)
-        fin = dia_map.get(fin_str.strip(), 4)
-        return list(range(inicio, fin + 1))
-    else:
-        # Días específicos separados por coma: "L,MI,V"
-        dias = [dia_map.get(d.strip(), 0) for d in dias_str.split(",")]
-        return dias
+
+    if "-" in valor:
+        inicio_str, fin_str = valor.split("-", 1)
+        inicio = dia_map.get(inicio_str.strip())
+        fin = dia_map.get(fin_str.strip())
+        if inicio is None or fin is None:
+            return dias_default
+        if inicio <= fin:
+            return list(range(inicio, fin + 1))
+        return list(range(inicio, 7)) + list(range(0, fin + 1))
+
+    dias = []
+    for token in valor.split(","):
+        numero = dia_map.get(token.strip())
+        if numero is not None:
+            dias.append(numero)
+    return sorted(set(dias)) or dias_default
 
 
 def _calcular_minutos_retraso(
@@ -504,3 +611,51 @@ def _crear_o_actualizar_asistencia(
         db.commit()
         db.refresh(nueva_asistencia)
         return nueva_asistencia
+
+
+def _es_feriado(db: Session, fecha: date, codigo_departamento: Optional[str]) -> bool:
+    """Valida si una fecha aplica como feriado para el departamento del empleado."""
+    query = db.query(DiaFestivo).filter(
+        DiaFestivo.fecha == fecha,
+        DiaFestivo.activo.is_(True),
+        or_(
+            DiaFestivo.ambito == AmbitoFestivoEnum.NACIONAL,
+            and_(
+                DiaFestivo.ambito == AmbitoFestivoEnum.DEPARTAMENTAL,
+                DiaFestivo.codigo_departamento == codigo_departamento,
+            ),
+        ),
+    )
+    return query.first() is not None
+
+
+def _obtener_justificacion_aprobada_dia(
+    db: Session,
+    id_empleado: int,
+    fecha: date,
+) -> Optional[JustificacionAusencia]:
+    """Obtiene una justificación aprobada que cubre la fecha consultada."""
+    return db.query(JustificacionAusencia).filter(
+        JustificacionAusencia.id_empleado == id_empleado,
+        JustificacionAusencia.estado_aprobacion == EstadoAprobacionEnum.aprobado,
+        JustificacionAusencia.fecha_inicio <= fecha,
+        JustificacionAusencia.fecha_fin >= fecha,
+    ).order_by(JustificacionAusencia.created_at.desc()).first()
+
+
+def get_resumen_mensual_desde_vista(db: Session, id_empleado: int, anio: int, mes: int):
+    """Consulta la vista rrhh.v_asistencia_mensual para un empleado y mes."""
+    inicio_mes = date(anio, mes, 1)
+    sql = text(
+        """
+        SELECT *
+        FROM rrhh.v_asistencia_mensual
+        WHERE id_empleado = :id_empleado
+          AND mes = date_trunc('month', :inicio_mes::date)
+        LIMIT 1
+        """
+    )
+    row = db.execute(sql, {"id_empleado": id_empleado, "inicio_mes": inicio_mes}).mappings().first()
+    if not row:
+        return None
+    return dict(row)

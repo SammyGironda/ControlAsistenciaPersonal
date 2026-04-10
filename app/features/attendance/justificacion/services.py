@@ -3,11 +3,11 @@ Servicios de negocio para JustificacionAusencia.
 CRUD completo con cálculo automático de horas y flujo de aprobación.
 """
 
-from datetime import datetime, timedelta
+from datetime import date, datetime
 from typing import List, Optional
 from decimal import Decimal
-from sqlalchemy import select, and_
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import and_
+from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 
 from app.features.attendance.justificacion.models import (
@@ -37,8 +37,8 @@ def calcular_horas_permiso(hora_inicio, hora_fin) -> Decimal:
     return round(horas, 1)
 
 
-async def crear_justificacion(
-    db: AsyncSession,
+def crear_justificacion(
+    db: Session,
     data: JustificacionAusenciaCreate
 ) -> JustificacionAusencia:
     """
@@ -73,17 +73,15 @@ async def crear_justificacion(
     )
 
     db.add(nueva_justificacion)
-    await db.commit()
-    await db.refresh(nueva_justificacion)
+    db.commit()
+    db.refresh(nueva_justificacion)
 
     return nueva_justificacion
 
 
-async def obtener_justificacion(db: AsyncSession, id: int) -> JustificacionAusencia:
+def obtener_justificacion(db: Session, id: int) -> JustificacionAusencia:
     """Obtiene una justificación por ID."""
-    stmt = select(JustificacionAusencia).where(JustificacionAusencia.id == id)
-    result = await db.execute(stmt)
-    justificacion = result.scalar_one_or_none()
+    justificacion = db.query(JustificacionAusencia).filter(JustificacionAusencia.id == id).first()
 
     if not justificacion:
         raise HTTPException(
@@ -94,47 +92,39 @@ async def obtener_justificacion(db: AsyncSession, id: int) -> JustificacionAusen
     return justificacion
 
 
-async def listar_justificaciones(
-    db: AsyncSession,
+def listar_justificaciones(
+    db: Session,
     id_empleado: Optional[int] = None,
     tipo_justificacion: Optional[TipoJustificacionEnum] = None,
     estado_aprobacion: Optional[EstadoAprobacionEnum] = None,
-    fecha_desde: Optional[datetime] = None,
-    fecha_hasta: Optional[datetime] = None,
+    fecha_desde: Optional[date] = None,
+    fecha_hasta: Optional[date] = None,
     skip: int = 0,
     limit: int = 100
 ) -> List[JustificacionAusencia]:
     """Lista justificaciones con filtros opcionales."""
-    stmt = select(JustificacionAusencia)
-
-    condiciones = []
+    query = db.query(JustificacionAusencia)
 
     if id_empleado:
-        condiciones.append(JustificacionAusencia.id_empleado == id_empleado)
+        query = query.filter(JustificacionAusencia.id_empleado == id_empleado)
 
     if tipo_justificacion:
-        condiciones.append(JustificacionAusencia.tipo_justificacion == tipo_justificacion)
+        query = query.filter(JustificacionAusencia.tipo_justificacion == tipo_justificacion)
 
     if estado_aprobacion:
-        condiciones.append(JustificacionAusencia.estado_aprobacion == estado_aprobacion)
+        query = query.filter(JustificacionAusencia.estado_aprobacion == estado_aprobacion)
 
     if fecha_desde:
-        condiciones.append(JustificacionAusencia.fecha_inicio >= fecha_desde)
+        query = query.filter(JustificacionAusencia.fecha_inicio >= fecha_desde)
 
     if fecha_hasta:
-        condiciones.append(JustificacionAusencia.fecha_fin <= fecha_hasta)
+        query = query.filter(JustificacionAusencia.fecha_fin <= fecha_hasta)
 
-    if condiciones:
-        stmt = stmt.where(and_(*condiciones))
-
-    stmt = stmt.order_by(JustificacionAusencia.fecha_inicio.desc()).offset(skip).limit(limit)
-
-    result = await db.execute(stmt)
-    return list(result.scalars().all())
+    return query.order_by(JustificacionAusencia.fecha_inicio.desc()).offset(skip).limit(limit).all()
 
 
-async def listar_pendientes_de_aprobacion(
-    db: AsyncSession,
+def listar_pendientes_de_aprobacion(
+    db: Session,
     skip: int = 0,
     limit: int = 100
 ) -> List[JustificacionAusencia]:
@@ -142,16 +132,13 @@ async def listar_pendientes_de_aprobacion(
     Lista todas las justificaciones pendientes de aprobación.
     Útil para supervisores y RRHH.
     """
-    stmt = select(JustificacionAusencia).where(
+    return db.query(JustificacionAusencia).filter(
         JustificacionAusencia.estado_aprobacion == EstadoAprobacionEnum.pendiente
-    ).order_by(JustificacionAusencia.fecha_inicio.asc()).offset(skip).limit(limit)
-
-    result = await db.execute(stmt)
-    return list(result.scalars().all())
+    ).order_by(JustificacionAusencia.fecha_inicio.asc()).offset(skip).limit(limit).all()
 
 
-async def aprobar_o_rechazar(
-    db: AsyncSession,
+def aprobar_o_rechazar(
+    db: Session,
     id: int,
     data: AprobacionRequest
 ) -> JustificacionAusencia:
@@ -160,7 +147,7 @@ async def aprobar_o_rechazar(
 
     Solo se puede cambiar el estado si está en 'pendiente'.
     """
-    justificacion = await obtener_justificacion(db, id)
+    justificacion = obtener_justificacion(db, id)
 
     if justificacion.estado_aprobacion != EstadoAprobacionEnum.pendiente:
         raise HTTPException(
@@ -185,14 +172,14 @@ async def aprobar_o_rechazar(
         else:
             justificacion.descripcion = f"Observación del aprobador: {data.observacion}"
 
-    await db.commit()
-    await db.refresh(justificacion)
+    db.commit()
+    db.refresh(justificacion)
 
     return justificacion
 
 
-async def actualizar_justificacion(
-    db: AsyncSession,
+def actualizar_justificacion(
+    db: Session,
     id: int,
     data: JustificacionAusenciaUpdate
 ) -> JustificacionAusencia:
@@ -201,7 +188,7 @@ async def actualizar_justificacion(
 
     No se puede actualizar si ya fue aprobada o rechazada.
     """
-    justificacion = await obtener_justificacion(db, id)
+    justificacion = obtener_justificacion(db, id)
 
     if justificacion.estado_aprobacion != EstadoAprobacionEnum.pendiente:
         raise HTTPException(
@@ -241,19 +228,19 @@ async def actualizar_justificacion(
     else:
         justificacion.total_horas_permiso = None
 
-    await db.commit()
-    await db.refresh(justificacion)
+    db.commit()
+    db.refresh(justificacion)
 
     return justificacion
 
 
-async def eliminar_justificacion(db: AsyncSession, id: int) -> None:
+def eliminar_justificacion(db: Session, id: int) -> None:
     """
     Elimina una justificación.
 
     Solo se puede eliminar si está en estado 'pendiente'.
     """
-    justificacion = await obtener_justificacion(db, id)
+    justificacion = obtener_justificacion(db, id)
 
     if justificacion.estado_aprobacion != EstadoAprobacionEnum.pendiente:
         raise HTTPException(
@@ -261,5 +248,5 @@ async def eliminar_justificacion(db: AsyncSession, id: int) -> None:
             detail="No se puede eliminar una justificación ya aprobada o rechazada"
         )
 
-    await db.delete(justificacion)
-    await db.commit()
+    db.delete(justificacion)
+    db.commit()

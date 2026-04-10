@@ -6,7 +6,7 @@ from datetime import date
 from typing import List, Optional
 from decimal import Decimal
 from fastapi import APIRouter, Depends, Query, Body, status
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.features.attendance.vacaciones import services
@@ -33,9 +33,9 @@ router = APIRouter(prefix="/vacaciones", tags=["Vacaciones"])
     status_code=status.HTTP_201_CREATED,
     summary="Crear registro de vacación"
 )
-async def crear_vacacion(
+def crear_vacacion(
     data: VacacionCreate,
-    db: AsyncSession = Depends(get_db)
+    db: Session = Depends(get_db)
 ):
     """
     Crea un nuevo registro de vacación para un empleado y gestión.
@@ -46,20 +46,20 @@ async def crear_vacacion(
     - No puede haber duplicados (id_empleado, gestion)
     - horas_correspondientes debe calcularse con fn_horas_vacacion_lgt
     """
-    return await services.crear_vacacion(db, data)
+    return services.crear_vacacion(db, data)
 
 
 @router.get(
-    "/{id}",
+    "/{id:int}",
     response_model=VacacionResponse,
     summary="Obtener vacación por ID"
 )
-async def obtener_vacacion(
+def obtener_vacacion(
     id: int,
-    db: AsyncSession = Depends(get_db)
+    db: Session = Depends(get_db)
 ):
     """Obtiene un registro de vacación específico por su ID."""
-    return await services.obtener_vacacion(db, id)
+    return services.obtener_vacacion(db, id)
 
 
 @router.get(
@@ -67,17 +67,17 @@ async def obtener_vacacion(
     response_model=Optional[VacacionResponse],
     summary="Obtener vacación de empleado por gestión"
 )
-async def obtener_vacacion_empleado_gestion(
+def obtener_vacacion_empleado_gestion(
     id_empleado: int,
     gestion: int,
-    db: AsyncSession = Depends(get_db)
+    db: Session = Depends(get_db)
 ):
     """
     Obtiene el registro de vacación de un empleado para una gestión específica.
 
     Retorna None si no existe el registro para esa combinación.
     """
-    return await services.obtener_vacacion_por_empleado_gestion(db, id_empleado, gestion)
+    return services.obtener_vacacion_por_empleado_gestion(db, id_empleado, gestion)
 
 
 @router.get(
@@ -85,12 +85,12 @@ async def obtener_vacacion_empleado_gestion(
     response_model=List[VacacionResponse],
     summary="Listar vacaciones con filtros"
 )
-async def listar_vacaciones(
+def listar_vacaciones(
     id_empleado: Optional[int] = Query(None, description="Filtrar por empleado"),
     gestion: Optional[int] = Query(None, description="Filtrar por año"),
     skip: int = Query(0, ge=0, description="Registros a omitir"),
     limit: int = Query(100, ge=1, le=500, description="Límite de registros"),
-    db: AsyncSession = Depends(get_db)
+    db: Session = Depends(get_db)
 ):
     """
     Lista registros de vacaciones con filtros opcionales.
@@ -99,7 +99,7 @@ async def listar_vacaciones(
     - `id_empleado`: filtrar por empleado específico
     - `gestion`: filtrar por año
     """
-    return await services.listar_vacaciones(
+    return services.listar_vacaciones(
         db,
         id_empleado=id_empleado,
         gestion=gestion,
@@ -109,31 +109,31 @@ async def listar_vacaciones(
 
 
 @router.put(
-    "/{id}",
+    "/{id:int}",
     response_model=VacacionResponse,
     summary="Actualizar registro de vacación"
 )
-async def actualizar_vacacion(
+def actualizar_vacacion(
     id: int,
     data: VacacionUpdate,
-    db: AsyncSession = Depends(get_db)
+    db: Session = Depends(get_db)
 ):
     """
     Actualiza los datos de un registro de vacación existente.
 
     Permite modificar las horas de goce/sin goce de haber y observaciones.
     """
-    return await services.actualizar_vacacion(db, id, data)
+    return services.actualizar_vacacion(db, id, data)
 
 
 @router.delete(
-    "/{id}",
+    "/{id:int}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Eliminar vacación (CASCADE)"
 )
-async def eliminar_vacacion(
+def eliminar_vacacion(
     id: int,
-    db: AsyncSession = Depends(get_db)
+    db: Session = Depends(get_db)
 ):
     """
     Elimina un registro de vacación y todos sus detalles asociados (CASCADE).
@@ -141,20 +141,20 @@ async def eliminar_vacacion(
     **ADVERTENCIA:** Esta acción elimina también todos los DetalleVacacion asociados.
     Solo usar en caso de error o para pruebas.
     """
-    await services.eliminar_vacacion(db, id)
+    services.eliminar_vacacion(db, id)
     return None
 
 
 @router.post(
-    "/{id}/incrementar-horas",
+    "/{id:int}/incrementar-horas",
     response_model=VacacionResponse,
     summary="Incrementar horas de vacación"
 )
-async def incrementar_horas(
+def incrementar_horas(
     id: int,
     horas: Decimal = Body(..., embed=True, gt=0, description="Horas a incrementar"),
     tipo: str = Body("goce_haber", embed=True, description="Tipo: 'goce_haber' o 'sin_goce_haber'"),
-    db: AsyncSession = Depends(get_db)
+    db: Session = Depends(get_db)
 ):
     """
     Incrementa las horas de vacación de un registro.
@@ -167,7 +167,7 @@ async def incrementar_horas(
     - `horas`: cantidad de horas a sumar
     - `tipo`: 'goce_haber' (default) o 'sin_goce_haber'
     """
-    return await services.incrementar_horas(db, id, horas, tipo)
+    return services.incrementar_horas(db, id, horas, tipo)
 
 
 # ===== ENDPOINTS PARA DETALLE_VACACION =====
@@ -178,10 +178,10 @@ async def incrementar_horas(
     status_code=status.HTTP_201_CREATED,
     summary="Crear solicitud de vacación"
 )
-async def crear_detalle_vacacion(
+def crear_detalle_vacacion(
     id_vacacion: int,
     data: DetalleVacacionCreate,
-    db: AsyncSession = Depends(get_db)
+    db: Session = Depends(get_db)
 ):
     """
     Crea una nueva solicitud de vacación para un registro de vacación.
@@ -194,20 +194,20 @@ async def crear_detalle_vacacion(
 
     **Estado inicial:** solicitado (requiere aprobación)
     """
-    return await services.crear_detalle_vacacion(db, id_vacacion, data)
+    return services.crear_detalle_vacacion(db, id_vacacion, data)
 
 
 @router.get(
-    "/detalles/{id}",
+    "/detalles/{id:int}",
     response_model=DetalleVacacionResponse,
     summary="Obtener detalle de vacación por ID"
 )
-async def obtener_detalle_vacacion(
+def obtener_detalle_vacacion(
     id: int,
-    db: AsyncSession = Depends(get_db)
+    db: Session = Depends(get_db)
 ):
     """Obtiene un detalle de vacación específico por su ID."""
-    return await services.obtener_detalle_vacacion(db, id)
+    return services.obtener_detalle_vacacion(db, id)
 
 
 @router.get(
@@ -215,12 +215,12 @@ async def obtener_detalle_vacacion(
     response_model=List[DetalleVacacionResponse],
     summary="Listar detalles de una vacación"
 )
-async def listar_detalles_vacacion(
+def listar_detalles_vacacion(
     id_vacacion: int,
     estado: Optional[EstadoDetalleVacacionEnum] = Query(None, description="Filtrar por estado"),
     skip: int = Query(0, ge=0, description="Registros a omitir"),
     limit: int = Query(100, ge=1, le=500, description="Límite de registros"),
-    db: AsyncSession = Depends(get_db)
+    db: Session = Depends(get_db)
 ):
     """
     Lista todos los detalles de vacación asociados a un registro de vacación.
@@ -228,7 +228,7 @@ async def listar_detalles_vacacion(
     **Filtros disponibles:**
     - `estado`: solicitado, aprobado, tomado, rechazado, cancelado
     """
-    return await services.listar_detalles_por_vacacion(
+    return services.listar_detalles_por_vacacion(
         db,
         id_vacacion=id_vacacion,
         estado=estado,
@@ -242,7 +242,7 @@ async def listar_detalles_vacacion(
     response_model=List[DetalleVacacionResponse],
     summary="Listar todos los detalles con filtros"
 )
-async def listar_todos_detalles(
+def listar_todos_detalles(
     id_empleado: Optional[int] = Query(None, description="Filtrar por empleado"),
     estado: Optional[EstadoDetalleVacacionEnum] = Query(None, description="Filtrar por estado"),
     tipo_vacacion: Optional[TipoVacacionEnum] = Query(None, description="Filtrar por tipo"),
@@ -250,7 +250,7 @@ async def listar_todos_detalles(
     fecha_hasta: Optional[date] = Query(None, description="Filtrar hasta fecha"),
     skip: int = Query(0, ge=0, description="Registros a omitir"),
     limit: int = Query(100, ge=1, le=500, description="Límite de registros"),
-    db: AsyncSession = Depends(get_db)
+    db: Session = Depends(get_db)
 ):
     """
     Lista todos los detalles de vacación con filtros opcionales.
@@ -261,7 +261,7 @@ async def listar_todos_detalles(
     - `tipo_vacacion`: goce_de_haber, sin_goce_de_haber, licencia_accidente
     - `fecha_desde` y `fecha_hasta`: rango de fechas de inicio
     """
-    return await services.listar_todos_detalles(
+    return services.listar_todos_detalles(
         db,
         id_empleado=id_empleado,
         estado=estado,
@@ -278,28 +278,28 @@ async def listar_todos_detalles(
     response_model=List[DetalleVacacionResponse],
     summary="Listar solicitudes pendientes de aprobación"
 )
-async def listar_detalles_pendientes(
+def listar_detalles_pendientes(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
-    db: AsyncSession = Depends(get_db)
+    db: Session = Depends(get_db)
 ):
     """
     Lista todas las solicitudes de vacación pendientes de aprobación.
 
     **Útil para supervisores y RRHH** para revisar solicitudes.
     """
-    return await services.listar_detalles_pendientes(db, skip, limit)
+    return services.listar_detalles_pendientes(db, skip, limit)
 
 
 @router.put(
-    "/detalles/{id}",
+    "/detalles/{id:int}",
     response_model=DetalleVacacionResponse,
     summary="Actualizar detalle de vacación"
 )
-async def actualizar_detalle_vacacion(
+def actualizar_detalle_vacacion(
     id: int,
     data: DetalleVacacionUpdate,
-    db: AsyncSession = Depends(get_db)
+    db: Session = Depends(get_db)
 ):
     """
     Actualiza un detalle de vacación existente.
@@ -307,18 +307,18 @@ async def actualizar_detalle_vacacion(
     **Restricción:** Solo se puede actualizar si está en estado 'solicitado'.
     Solicitudes aprobadas o tomadas no se pueden modificar.
     """
-    return await services.actualizar_detalle_vacacion(db, id, data)
+    return services.actualizar_detalle_vacacion(db, id, data)
 
 
 @router.post(
-    "/detalles/{id}/cambiar-estado",
+    "/detalles/{id:int}/cambiar-estado",
     response_model=DetalleVacacionResponse,
     summary="Cambiar estado de solicitud de vacación"
 )
-async def cambiar_estado_detalle(
+def cambiar_estado_detalle(
     id: int,
     data: CambiarEstadoRequest,
-    db: AsyncSession = Depends(get_db)
+    db: Session = Depends(get_db)
 ):
     """
     Cambia el estado de una solicitud de vacación.
@@ -335,17 +335,17 @@ async def cambiar_estado_detalle(
     - Al tomar se descuentan las horas del saldo
     - Al cancelar se recalcula el saldo si estaba aprobado
     """
-    return await services.cambiar_estado_detalle(db, id, data)
+    return services.cambiar_estado_detalle(db, id, data)
 
 
 @router.delete(
-    "/detalles/{id}",
+    "/detalles/{id:int}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Eliminar detalle de vacación"
 )
-async def eliminar_detalle_vacacion(
+def eliminar_detalle_vacacion(
     id: int,
-    db: AsyncSession = Depends(get_db)
+    db: Session = Depends(get_db)
 ):
     """
     Elimina un detalle de vacación.
@@ -353,5 +353,5 @@ async def eliminar_detalle_vacacion(
     **Restricción:** Solo se puede eliminar si está en estado 'solicitado' o 'rechazado'.
     No se pueden eliminar solicitudes aprobadas o tomadas.
     """
-    await services.eliminar_detalle_vacacion(db, id)
+    services.eliminar_detalle_vacacion(db, id)
     return None

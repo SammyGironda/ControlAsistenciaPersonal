@@ -68,7 +68,7 @@ def get_all_horarios(
 
 
 @router.get(
-    "/{horario_id}",
+    "/{horario_id:int}",
     response_model=HorarioResponse,
     summary="Obtener horario por ID",
     description="Retorna un horario específico por su ID"
@@ -88,7 +88,7 @@ def get_horario(
 
 
 @router.put(
-    "/{horario_id}",
+    "/{horario_id:int}",
     response_model=HorarioResponse,
     summary="Actualizar horario",
     description="Actualiza los datos de un horario existente"
@@ -103,7 +103,7 @@ def update_horario(
 
 
 @router.delete(
-    "/{horario_id}",
+    "/{horario_id:int}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Eliminar horario",
     description="Elimina (soft delete) un horario. No permite eliminar si tiene asignaciones activas."
@@ -175,7 +175,7 @@ def get_all_asignaciones(
 
 
 @router.get(
-    "/asignaciones/{asignacion_id}",
+    "/asignaciones/{asignacion_id:int}",
     response_model=AsignacionHorarioResponse,
     summary="Obtener asignación por ID",
     description="Retorna una asignación específica por su ID"
@@ -195,7 +195,7 @@ def get_asignacion(
 
 
 @router.put(
-    "/asignaciones/{asignacion_id}",
+    "/asignaciones/{asignacion_id:int}",
     response_model=AsignacionHorarioResponse,
     summary="Actualizar asignación",
     description="Actualiza los datos de una asignación existente"
@@ -210,7 +210,7 @@ def update_asignacion(
 
 
 @router.delete(
-    "/asignaciones/{asignacion_id}",
+    "/asignaciones/{asignacion_id:int}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Eliminar asignación",
     description="Elimina (marca como inactiva) una asignación de horario"

@@ -322,6 +322,23 @@ El sistema está ahora **70% completo**. Semana 8 agregará reportes exportables
 
 **Próximo paso:** Semana 8 - Módulo Reports + Worker completo
 
----
 
-_Generado automáticamente por Claude Code - Sistema RRHH Bolivia MVP_
+
+## Addendum de estabilizacion (09-Abr-2026)
+
+Se aplicaron correcciones de estabilidad para preparar continuidad hacia Semana 8:
+
+- Alineacion de routers Semana 7 a flujo sync (`Session` + servicios sync), removiendo desajustes `async def` en capas que no usan I/O async.
+- Correccion de precedencia de rutas para evitar colisiones entre rutas dinamicas y estaticas:
+  - `GET /horarios/asignaciones`
+  - `GET /vacaciones/detalles/pendientes`
+  Se agregaron convertidores `:int` en rutas con IDs numericos.
+- Endurecimiento de parseo de `dias_laborables` en asistencia diaria para soportar `None`, listas JSON y formatos string (`L-V`, `L,MI,V`) con fallback seguro.
+- Ajuste de filtros de fecha en justificaciones para usar `date` (router y servicio), alineado con el modelo de datos.
+
+Validaciones ejecutadas en este addendum:
+
+- `python -m compileall app scripts` OK
+- `python -c "from app.main import app; print('ok')"` OK
+- `python -m pytest` (sin pruebas definidas: `collected 0 items`)
+- Verificacion programatica de colisiones de rutas: sin conflictos detectados

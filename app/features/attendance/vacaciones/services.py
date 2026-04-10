@@ -6,8 +6,7 @@ CRUD completo con cálculo de saldo y gestión del ciclo de vida de solicitudes.
 from datetime import date
 from typing import List, Optional
 from decimal import Decimal
-from sqlalchemy import select, and_
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 
 from app.features.attendance.vacaciones.models import (
@@ -27,20 +26,16 @@ from app.features.attendance.vacaciones.schemas import (
 
 # ===== SERVICIOS PARA VACACION =====
 
-async def crear_vacacion(db: AsyncSession, data: VacacionCreate) -> Vacacion:
+def crear_vacacion(db: Session, data: VacacionCreate) -> Vacacion:
     """
     Crea un nuevo registro de vacación anual.
     Valida que no exista un registro para el mismo empleado y gestión.
     """
     # Verificar duplicados
-    stmt = select(Vacacion).where(
-        and_(
-            Vacacion.id_empleado == data.id_empleado,
-            Vacacion.gestion == data.gestion
-        )
-    )
-    result = await db.execute(stmt)
-    existente = result.scalar_one_or_none()
+    existente = db.query(Vacacion).filter(
+        Vacacion.id_empleado == data.id_empleado,
+        Vacacion.gestion == data.gestion,
+    ).first()
 
     if existente:
         raise HTTPException(
@@ -60,17 +55,15 @@ async def crear_vacacion(db: AsyncSession, data: VacacionCreate) -> Vacacion:
     )
 
     db.add(nueva_vacacion)
-    await db.commit()
-    await db.refresh(nueva_vacacion)
+    db.commit()
+    db.refresh(nueva_vacacion)
 
     return nueva_vacacion
 
 
-async def obtener_vacacion(db: AsyncSession, id: int) -> Vacacion:
+def obtener_vacacion(db: Session, id: int) -> Vacacion:
     """Obtiene un registro de vacación por ID."""
-    stmt = select(Vacacion).where(Vacacion.id == id)
-    result = await db.execute(stmt)
-    vacacion = result.scalar_one_or_none()
+    vacacion = db.query(Vacacion).filter(Vacacion.id == id).first()
 
     if not vacacion:
         raise HTTPException(
@@ -81,24 +74,20 @@ async def obtener_vacacion(db: AsyncSession, id: int) -> Vacacion:
     return vacacion
 
 
-async def obtener_vacacion_por_empleado_gestion(
-    db: AsyncSession,
+def obtener_vacacion_por_empleado_gestion(
+    db: Session,
     id_empleado: int,
     gestion: int
 ) -> Optional[Vacacion]:
     """Obtiene el registro de vacación de un empleado para una gestión específica."""
-    stmt = select(Vacacion).where(
-        and_(
-            Vacacion.id_empleado == id_empleado,
-            Vacacion.gestion == gestion
-        )
-    )
-    result = await db.execute(stmt)
-    return result.scalar_one_or_none()
+    return db.query(Vacacion).filter(
+        Vacacion.id_empleado == id_empleado,
+        Vacacion.gestion == gestion,
+    ).first()
 
 
-async def listar_vacaciones(
-    db: AsyncSession,
+def listar_vacaciones(
+    db: Session,
     id_empleado: Optional[int] = None,
     gestion: Optional[int] = None,
     skip: int = 0,
@@ -111,27 +100,19 @@ async def listar_vacaciones(
         id_empleado: Filtrar por empleado
         gestion: Filtrar por gestión/año
     """
-    stmt = select(Vacacion)
-
-    condiciones = []
+    query = db.query(Vacacion)
 
     if id_empleado is not None:
-        condiciones.append(Vacacion.id_empleado == id_empleado)
+        query = query.filter(Vacacion.id_empleado == id_empleado)
 
     if gestion is not None:
-        condiciones.append(Vacacion.gestion == gestion)
+        query = query.filter(Vacacion.gestion == gestion)
 
-    if condiciones:
-        stmt = stmt.where(and_(*condiciones))
-
-    stmt = stmt.order_by(Vacacion.gestion.desc(), Vacacion.id_empleado).offset(skip).limit(limit)
-
-    result = await db.execute(stmt)
-    return list(result.scalars().all())
+    return query.order_by(Vacacion.gestion.desc(), Vacacion.id_empleado).offset(skip).limit(limit).all()
 
 
-async def actualizar_vacacion(
-    db: AsyncSession,
+def actualizar_vacacion(
+    db: Session,
     id: int,
     data: VacacionUpdate
 ) -> Vacacion:
@@ -139,7 +120,7 @@ async def actualizar_vacacion(
     Actualiza un registro de vacación existente.
     Solo permite actualizar horas_goce_haber, horas_sin_goce_haber y observacion.
     """
-    vacacion = await obtener_vacacion(db, id)
+    vacacion = obtener_vacacion(db, id)
 
     # Aplicar cambios
     if data.horas_goce_haber is not None:
@@ -149,25 +130,25 @@ async def actualizar_vacacion(
     if data.observacion is not None:
         vacacion.observacion = data.observacion
 
-    await db.commit()
-    await db.refresh(vacacion)
+    db.commit()
+    db.refresh(vacacion)
 
     return vacacion
 
 
-async def eliminar_vacacion(db: AsyncSession, id: int) -> None:
+def eliminar_vacacion(db: Session, id: int) -> None:
     """
     Elimina un registro de vacación.
     El CASCADE eliminará automáticamente todos los detalles asociados.
     """
-    vacacion = await obtener_vacacion(db, id)
+    vacacion = obtener_vacacion(db, id)
 
-    await db.delete(vacacion)
-    await db.commit()
+    db.delete(vacacion)
+    db.commit()
 
 
-async def incrementar_horas_correspondientes(
-    db: AsyncSession,
+def incrementar_horas_correspondientes(
+    db: Session,
     id_empleado: int,
     gestion: int,
     horas_adicionales: Decimal
@@ -176,7 +157,7 @@ async def incrementar_horas_correspondientes(
     Incrementa las horas correspondientes de un empleado en una gestión.
     Usado cuando se trabaja un feriado (+8h) o se transfiere beneficio cumpleaños (+4h).
     """
-    vacacion = await obtener_vacacion_por_empleado_gestion(db, id_empleado, gestion)
+    vacacion = obtener_vacacion_por_empleado_gestion(db, id_empleado, gestion)
 
     if not vacacion:
         raise HTTPException(
@@ -186,16 +167,32 @@ async def incrementar_horas_correspondientes(
 
     vacacion.horas_correspondientes += horas_adicionales
 
-    await db.commit()
-    await db.refresh(vacacion)
+    db.commit()
+    db.refresh(vacacion)
 
+    return vacacion
+
+
+def incrementar_horas(db: Session, id_vacacion: int, horas: Decimal, tipo: str = "goce_haber") -> Vacacion:
+    """Incrementa horas en un registro de vacación existente."""
+    vacacion = obtener_vacacion(db, id_vacacion)
+
+    vacacion.horas_correspondientes += horas
+    if tipo == "sin_goce_haber":
+        vacacion.horas_sin_goce_haber += horas
+    else:
+        vacacion.horas_goce_haber += horas
+
+    db.commit()
+    db.refresh(vacacion)
     return vacacion
 
 
 # ===== SERVICIOS PARA DETALLE_VACACION =====
 
-async def crear_detalle_vacacion(
-    db: AsyncSession,
+def crear_detalle_vacacion(
+    db: Session,
+    id_vacacion: int,
     data: DetalleVacacionCreate
 ) -> DetalleVacacion:
     """
@@ -206,7 +203,7 @@ async def crear_detalle_vacacion(
     - Que haya suficiente saldo disponible
     """
     # Verificar que la vacación exista
-    vacacion = await obtener_vacacion(db, data.id_vacacion)
+    vacacion = obtener_vacacion(db, id_vacacion)
 
     # Validar saldo disponible
     horas_pendientes = vacacion.horas_pendientes
@@ -226,7 +223,7 @@ async def crear_detalle_vacacion(
 
     # Crear el detalle
     nuevo_detalle = DetalleVacacion(
-        id_vacacion=data.id_vacacion,
+        id_vacacion=id_vacacion,
         id_justificacion=data.id_justificacion,
         fecha_inicio=data.fecha_inicio,
         fecha_fin=data.fecha_fin,
@@ -237,17 +234,15 @@ async def crear_detalle_vacacion(
     )
 
     db.add(nuevo_detalle)
-    await db.commit()
-    await db.refresh(nuevo_detalle)
+    db.commit()
+    db.refresh(nuevo_detalle)
 
     return nuevo_detalle
 
 
-async def obtener_detalle_vacacion(db: AsyncSession, id: int) -> DetalleVacacion:
+def obtener_detalle_vacacion(db: Session, id: int) -> DetalleVacacion:
     """Obtiene un detalle de vacación por ID."""
-    stmt = select(DetalleVacacion).where(DetalleVacacion.id == id)
-    result = await db.execute(stmt)
-    detalle = result.scalar_one_or_none()
+    detalle = db.query(DetalleVacacion).filter(DetalleVacacion.id == id).first()
 
     if not detalle:
         raise HTTPException(
@@ -258,8 +253,8 @@ async def obtener_detalle_vacacion(db: AsyncSession, id: int) -> DetalleVacacion
     return detalle
 
 
-async def listar_detalles_vacacion(
-    db: AsyncSession,
+def listar_detalles_vacacion(
+    db: Session,
     id_vacacion: Optional[int] = None,
     estado: Optional[EstadoDetalleVacacionEnum] = None,
     tipo_vacacion: Optional[TipoVacacionEnum] = None,
@@ -278,36 +273,72 @@ async def listar_detalles_vacacion(
         fecha_desde: Filtrar por fecha_inicio >= fecha_desde
         fecha_hasta: Filtrar por fecha_fin <= fecha_hasta
     """
-    stmt = select(DetalleVacacion)
-
-    condiciones = []
+    query = db.query(DetalleVacacion)
 
     if id_vacacion is not None:
-        condiciones.append(DetalleVacacion.id_vacacion == id_vacacion)
+        query = query.filter(DetalleVacacion.id_vacacion == id_vacacion)
 
     if estado is not None:
-        condiciones.append(DetalleVacacion.estado == estado)
+        query = query.filter(DetalleVacacion.estado == estado)
 
     if tipo_vacacion is not None:
-        condiciones.append(DetalleVacacion.tipo_vacacion == tipo_vacacion)
+        query = query.filter(DetalleVacacion.tipo_vacacion == tipo_vacacion)
 
     if fecha_desde is not None:
-        condiciones.append(DetalleVacacion.fecha_inicio >= fecha_desde)
+        query = query.filter(DetalleVacacion.fecha_inicio >= fecha_desde)
 
     if fecha_hasta is not None:
-        condiciones.append(DetalleVacacion.fecha_fin <= fecha_hasta)
+        query = query.filter(DetalleVacacion.fecha_fin <= fecha_hasta)
 
-    if condiciones:
-        stmt = stmt.where(and_(*condiciones))
-
-    stmt = stmt.order_by(DetalleVacacion.fecha_inicio.desc()).offset(skip).limit(limit)
-
-    result = await db.execute(stmt)
-    return list(result.scalars().all())
+    return query.order_by(DetalleVacacion.fecha_inicio.desc()).offset(skip).limit(limit).all()
 
 
-async def listar_detalles_pendientes(
-    db: AsyncSession,
+def listar_detalles_por_vacacion(
+    db: Session,
+    id_vacacion: int,
+    estado: Optional[EstadoDetalleVacacionEnum] = None,
+    skip: int = 0,
+    limit: int = 100,
+) -> List[DetalleVacacion]:
+    """Lista detalles filtrados por id_vacacion."""
+    return listar_detalles_vacacion(
+        db,
+        id_vacacion=id_vacacion,
+        estado=estado,
+        skip=skip,
+        limit=limit,
+    )
+
+
+def listar_todos_detalles(
+    db: Session,
+    id_empleado: Optional[int] = None,
+    estado: Optional[EstadoDetalleVacacionEnum] = None,
+    tipo_vacacion: Optional[TipoVacacionEnum] = None,
+    fecha_desde: Optional[date] = None,
+    fecha_hasta: Optional[date] = None,
+    skip: int = 0,
+    limit: int = 100,
+) -> List[DetalleVacacion]:
+    """Lista detalles con filtro opcional por empleado."""
+    query = db.query(DetalleVacacion).join(Vacacion, DetalleVacacion.id_vacacion == Vacacion.id)
+
+    if id_empleado is not None:
+        query = query.filter(Vacacion.id_empleado == id_empleado)
+    if estado is not None:
+        query = query.filter(DetalleVacacion.estado == estado)
+    if tipo_vacacion is not None:
+        query = query.filter(DetalleVacacion.tipo_vacacion == tipo_vacacion)
+    if fecha_desde is not None:
+        query = query.filter(DetalleVacacion.fecha_inicio >= fecha_desde)
+    if fecha_hasta is not None:
+        query = query.filter(DetalleVacacion.fecha_fin <= fecha_hasta)
+
+    return query.order_by(DetalleVacacion.fecha_inicio.desc()).offset(skip).limit(limit).all()
+
+
+def listar_detalles_pendientes(
+    db: Session,
     skip: int = 0,
     limit: int = 100
 ) -> List[DetalleVacacion]:
@@ -315,16 +346,13 @@ async def listar_detalles_pendientes(
     Lista todas las solicitudes pendientes de aprobación.
     Útil para supervisores y RRHH.
     """
-    stmt = select(DetalleVacacion).where(
+    return db.query(DetalleVacacion).filter(
         DetalleVacacion.estado == EstadoDetalleVacacionEnum.solicitado
-    ).order_by(DetalleVacacion.fecha_inicio.asc()).offset(skip).limit(limit)
-
-    result = await db.execute(stmt)
-    return list(result.scalars().all())
+    ).order_by(DetalleVacacion.fecha_inicio.asc()).offset(skip).limit(limit).all()
 
 
-async def actualizar_detalle_vacacion(
-    db: AsyncSession,
+def actualizar_detalle_vacacion(
+    db: Session,
     id: int,
     data: DetalleVacacionUpdate
 ) -> DetalleVacacion:
@@ -332,7 +360,7 @@ async def actualizar_detalle_vacacion(
     Actualiza un detalle de vacación existente.
     Solo se puede actualizar si está en estado 'solicitado'.
     """
-    detalle = await obtener_detalle_vacacion(db, id)
+    detalle = obtener_detalle_vacacion(db, id)
 
     if detalle.estado != EstadoDetalleVacacionEnum.solicitado:
         raise HTTPException(
@@ -347,7 +375,7 @@ async def actualizar_detalle_vacacion(
         detalle.fecha_fin = data.fecha_fin
     if data.horas_habiles is not None:
         # Validar saldo disponible con las nuevas horas
-        vacacion = await obtener_vacacion(db, detalle.id_vacacion)
+        vacacion = obtener_vacacion(db, detalle.id_vacacion)
         horas_pendientes = vacacion.horas_pendientes
 
         if data.horas_habiles > horas_pendientes:
@@ -369,18 +397,18 @@ async def actualizar_detalle_vacacion(
             detail="fecha_fin debe ser mayor o igual a fecha_inicio"
         )
 
-    await db.commit()
-    await db.refresh(detalle)
+    db.commit()
+    db.refresh(detalle)
 
     return detalle
 
 
-async def eliminar_detalle_vacacion(db: AsyncSession, id: int) -> None:
+def eliminar_detalle_vacacion(db: Session, id: int) -> None:
     """
     Elimina un detalle de vacación.
     Solo se puede eliminar si está en estado 'solicitado'.
     """
-    detalle = await obtener_detalle_vacacion(db, id)
+    detalle = obtener_detalle_vacacion(db, id)
 
     if detalle.estado != EstadoDetalleVacacionEnum.solicitado:
         raise HTTPException(
@@ -388,12 +416,12 @@ async def eliminar_detalle_vacacion(db: AsyncSession, id: int) -> None:
             detail=f"No se puede eliminar un detalle en estado '{detalle.estado}'. Solo se permite eliminar en estado 'solicitado'"
         )
 
-    await db.delete(detalle)
-    await db.commit()
+    db.delete(detalle)
+    db.commit()
 
 
-async def cambiar_estado_detalle(
-    db: AsyncSession,
+def cambiar_estado_detalle(
+    db: Session,
     id: int,
     data: CambiarEstadoRequest
 ) -> DetalleVacacion:
@@ -412,7 +440,7 @@ async def cambiar_estado_detalle(
     2. Al cambiar a 'tomado': descuenta horas de vacacion.horas_tomadas y del saldo correspondiente
     3. Al cambiar a 'rechazado' o 'cancelado': libera la reserva
     """
-    detalle = await obtener_detalle_vacacion(db, id)
+    detalle = obtener_detalle_vacacion(db, id)
     estado_anterior = detalle.estado
     nuevo_estado = data.nuevo_estado
 
@@ -450,7 +478,7 @@ async def cambiar_estado_detalle(
             )
 
     # Obtener la vacación asociada
-    vacacion = await obtener_vacacion(db, detalle.id_vacacion)
+    vacacion = obtener_vacacion(db, detalle.id_vacacion)
 
     # Validar saldo disponible al aprobar
     if nuevo_estado == EstadoDetalleVacacionEnum.aprobado:
@@ -501,8 +529,8 @@ async def cambiar_estado_detalle(
         else:
             detalle.observacion = f"[{nuevo_estado}] {data.observacion}"
 
-    await db.commit()
-    await db.refresh(detalle)
-    await db.refresh(vacacion)
+    db.commit()
+    db.refresh(detalle)
+    db.refresh(vacacion)
 
     return detalle

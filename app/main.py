@@ -125,10 +125,12 @@ from app.features.attendance.asistencia_diaria.router import router as asistenci
 app.include_router(asistencia_diaria_router, prefix=settings.API_PREFIX)
 
 # --- Semana 7: Attendance - Feriados, Justificaciones y Vacaciones ---
+from app.features.attendance.router import router as attendance_router
 from app.features.attendance.feriados.router import router as feriados_router
 from app.features.attendance.beneficio_cumpleanos.router import router as beneficio_cumpleanos_router
 from app.features.attendance.justificacion.router import router as justificacion_router
 from app.features.attendance.vacaciones.router import router as vacaciones_router
+app.include_router(attendance_router, prefix=settings.API_PREFIX)
 app.include_router(feriados_router, prefix=settings.API_PREFIX)
 app.include_router(beneficio_cumpleanos_router, prefix=settings.API_PREFIX)
 app.include_router(justificacion_router, prefix=settings.API_PREFIX)

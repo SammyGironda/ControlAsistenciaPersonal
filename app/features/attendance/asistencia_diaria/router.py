@@ -13,7 +13,7 @@ from app.features.attendance.asistencia_diaria import services
 from app.features.attendance.asistencia_diaria.schemas import (
     AsistenciaDiariaCreate, AsistenciaDiariaUpdate,
     AsistenciaDiariaResponse, AsistenciaDiariaConDetalles,
-    ResultadoProcesamiento
+    ResultadoProcesamiento, ResumenAsistenciaMensual
 )
 
 router = APIRouter(
@@ -247,6 +247,7 @@ def recalcular_asistencia_empleado(
 
 @router.get(
     "/resumen-mensual/{id_empleado}/{anio}/{mes}",
+    response_model=ResumenAsistenciaMensual,
     summary="Resumen mensual de asistencia",
     description="Retorna resumen mensual de asistencia de un empleado (basado en vista v_asistencia_mensual)"
 )
@@ -270,9 +271,10 @@ def get_resumen_mensual(
     **Nota:** Este endpoint consulta la vista `v_asistencia_mensual`
     que se crea en la migración de Semana 6.
     """
-    # TODO: Implementar consulta a vista v_asistencia_mensual
-    # Por ahora retornamos error 501 (Not Implemented)
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Endpoint de resumen mensual será implementado después de crear la vista SQL"
-    )
+    resumen = services.get_resumen_mensual_desde_vista(db, id_empleado, anio, mes)
+    if not resumen:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No existe resumen mensual para los parámetros solicitados"
+        )
+    return resumen

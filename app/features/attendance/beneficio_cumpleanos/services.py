@@ -5,8 +5,7 @@ Gestión del beneficio de medio día por cumpleaños.
 
 from datetime import datetime
 from typing import List, Optional
-from sqlalchemy import select, and_
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 
 from app.features.attendance.beneficio_cumpleanos.models import BeneficioCumpleanos
@@ -16,8 +15,8 @@ from app.features.attendance.beneficio_cumpleanos.schemas import (
 )
 
 
-async def crear_beneficio_cumpleanos(
-    db: AsyncSession,
+def crear_beneficio_cumpleanos(
+    db: Session,
     data: BeneficioCumpleanosCreate
 ) -> BeneficioCumpleanos:
     """
@@ -27,14 +26,10 @@ async def crear_beneficio_cumpleanos(
     Esta función es llamada automáticamente por el worker diario.
     """
     # Verificar que no exista ya para este empleado y gestión
-    stmt = select(BeneficioCumpleanos).where(
-        and_(
-            BeneficioCumpleanos.id_empleado == data.id_empleado,
-            BeneficioCumpleanos.gestion == data.gestion
-        )
-    )
-    result = await db.execute(stmt)
-    existente = result.scalar_one_or_none()
+    existente = db.query(BeneficioCumpleanos).filter(
+        BeneficioCumpleanos.id_empleado == data.id_empleado,
+        BeneficioCumpleanos.gestion == data.gestion,
+    ).first()
 
     if existente:
         raise HTTPException(
@@ -51,17 +46,15 @@ async def crear_beneficio_cumpleanos(
     )
 
     db.add(nuevo_beneficio)
-    await db.commit()
-    await db.refresh(nuevo_beneficio)
+    db.commit()
+    db.refresh(nuevo_beneficio)
 
     return nuevo_beneficio
 
 
-async def obtener_beneficio(db: AsyncSession, id: int) -> BeneficioCumpleanos:
+def obtener_beneficio(db: Session, id: int) -> BeneficioCumpleanos:
     """Obtiene un beneficio por ID."""
-    stmt = select(BeneficioCumpleanos).where(BeneficioCumpleanos.id == id)
-    result = await db.execute(stmt)
-    beneficio = result.scalar_one_or_none()
+    beneficio = db.query(BeneficioCumpleanos).filter(BeneficioCumpleanos.id == id).first()
 
     if not beneficio:
         raise HTTPException(
@@ -72,24 +65,20 @@ async def obtener_beneficio(db: AsyncSession, id: int) -> BeneficioCumpleanos:
     return beneficio
 
 
-async def obtener_beneficio_por_empleado_gestion(
-    db: AsyncSession,
+def obtener_beneficio_por_empleado_gestion(
+    db: Session,
     id_empleado: int,
     gestion: int
 ) -> Optional[BeneficioCumpleanos]:
     """Obtiene el beneficio de un empleado para una gestión específica."""
-    stmt = select(BeneficioCumpleanos).where(
-        and_(
-            BeneficioCumpleanos.id_empleado == id_empleado,
-            BeneficioCumpleanos.gestion == gestion
-        )
-    )
-    result = await db.execute(stmt)
-    return result.scalar_one_or_none()
+    return db.query(BeneficioCumpleanos).filter(
+        BeneficioCumpleanos.id_empleado == id_empleado,
+        BeneficioCumpleanos.gestion == gestion,
+    ).first()
 
 
-async def listar_beneficios(
-    db: AsyncSession,
+def listar_beneficios(
+    db: Session,
     gestion: Optional[int] = None,
     fue_utilizado: Optional[bool] = None,
     transferido_a_vacacion: Optional[bool] = None,
@@ -97,30 +86,25 @@ async def listar_beneficios(
     limit: int = 100
 ) -> List[BeneficioCumpleanos]:
     """Lista beneficios con filtros opcionales."""
-    stmt = select(BeneficioCumpleanos)
-
-    condiciones = []
+    query = db.query(BeneficioCumpleanos)
 
     if gestion is not None:
-        condiciones.append(BeneficioCumpleanos.gestion == gestion)
+        query = query.filter(BeneficioCumpleanos.gestion == gestion)
 
     if fue_utilizado is not None:
-        condiciones.append(BeneficioCumpleanos.fue_utilizado == fue_utilizado)
+        query = query.filter(BeneficioCumpleanos.fue_utilizado == fue_utilizado)
 
     if transferido_a_vacacion is not None:
-        condiciones.append(BeneficioCumpleanos.transferido_a_vacacion == transferido_a_vacacion)
+        query = query.filter(BeneficioCumpleanos.transferido_a_vacacion == transferido_a_vacacion)
 
-    if condiciones:
-        stmt = stmt.where(and_(*condiciones))
-
-    stmt = stmt.order_by(BeneficioCumpleanos.gestion.desc(), BeneficioCumpleanos.id_empleado).offset(skip).limit(limit)
-
-    result = await db.execute(stmt)
-    return list(result.scalars().all())
+    return query.order_by(
+        BeneficioCumpleanos.gestion.desc(),
+        BeneficioCumpleanos.id_empleado,
+    ).offset(skip).limit(limit).all()
 
 
-async def marcar_como_utilizado(
-    db: AsyncSession,
+def marcar_como_utilizado(
+    db: Session,
     id: int,
     id_justificacion: Optional[int] = None
 ) -> BeneficioCumpleanos:
@@ -128,7 +112,7 @@ async def marcar_como_utilizado(
     Marca un beneficio como utilizado.
     Opcionalmente vincula con una justificación.
     """
-    beneficio = await obtener_beneficio(db, id)
+    beneficio = obtener_beneficio(db, id)
 
     if beneficio.fue_utilizado:
         raise HTTPException(
@@ -141,14 +125,14 @@ async def marcar_como_utilizado(
     if id_justificacion:
         beneficio.id_justificacion = id_justificacion
 
-    await db.commit()
-    await db.refresh(beneficio)
+    db.commit()
+    db.refresh(beneficio)
 
     return beneficio
 
 
-async def transferir_a_vacacion(
-    db: AsyncSession,
+def transferir_a_vacacion(
+    db: Session,
     id: int
 ) -> BeneficioCumpleanos:
     """
@@ -157,7 +141,7 @@ async def transferir_a_vacacion(
 
     El worker debe sumar 4h a vacacion.horas_goce_haber antes de llamar esta función.
     """
-    beneficio = await obtener_beneficio(db, id)
+    beneficio = obtener_beneficio(db, id)
 
     if beneficio.transferido_a_vacacion:
         raise HTTPException(
@@ -167,19 +151,19 @@ async def transferir_a_vacacion(
 
     beneficio.transferido_a_vacacion = True
 
-    await db.commit()
-    await db.refresh(beneficio)
+    db.commit()
+    db.refresh(beneficio)
 
     return beneficio
 
 
-async def actualizar_beneficio(
-    db: AsyncSession,
+def actualizar_beneficio(
+    db: Session,
     id: int,
     data: BeneficioCumpleanosUpdate
 ) -> BeneficioCumpleanos:
     """Actualiza un beneficio existente."""
-    beneficio = await obtener_beneficio(db, id)
+    beneficio = obtener_beneficio(db, id)
 
     if data.fue_utilizado is not None:
         beneficio.fue_utilizado = data.fue_utilizado
@@ -190,17 +174,17 @@ async def actualizar_beneficio(
     if data.transferido_a_vacacion is not None:
         beneficio.transferido_a_vacacion = data.transferido_a_vacacion
 
-    await db.commit()
-    await db.refresh(beneficio)
+    db.commit()
+    db.refresh(beneficio)
 
     return beneficio
 
 
-async def eliminar_beneficio(db: AsyncSession, id: int) -> None:
+def eliminar_beneficio(db: Session, id: int) -> None:
     """
     Elimina un beneficio.
     Solo usar en caso de error o para pruebas.
     """
-    beneficio = await obtener_beneficio(db, id)
-    await db.delete(beneficio)
-    await db.commit()
+    beneficio = obtener_beneficio(db, id)
+    db.delete(beneficio)
+    db.commit()
