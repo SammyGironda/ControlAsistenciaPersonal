@@ -12,8 +12,7 @@ from app.db.base import Base
 
 if TYPE_CHECKING:
     from app.features.employees.empleado.models import Empleado
-    # Forward reference - se activará en minutos cuando exista JustificacionAusencia
-    # from app.features.attendance.justificacion.models import JustificacionAusencia
+    from app.features.attendance.justificacion.models import JustificacionAusencia
 
 
 class BeneficioCumpleanos(Base):
@@ -68,7 +67,7 @@ class BeneficioCumpleanos(Base):
 
     id_justificacion: Mapped[Optional[int]] = mapped_column(
         Integer,
-        # ForeignKey("rrhh.justificacion_ausencia.id", ondelete="SET NULL"),  # Se activará después
+        ForeignKey("rrhh.justificacion_ausencia.id", ondelete="SET NULL"),
         nullable=True,
         comment="FK a justificacion_ausencia si el empleado solicitó usar el beneficio"
     )
@@ -94,12 +93,12 @@ class BeneficioCumpleanos(Base):
         lazy="select"
     )
 
-    # Descomentar cuando exista JustificacionAusencia
-    # justificacion: Mapped[Optional["JustificacionAusencia"]] = relationship(
-    #     "JustificacionAusencia",
-    #     foreign_keys=[id_justificacion],
-    #     lazy="select"
-    # )
+    justificacion: Mapped[Optional["JustificacionAusencia"]] = relationship(
+        "JustificacionAusencia",
+        foreign_keys=[id_justificacion],
+        back_populates="beneficios_cumpleanos",
+        lazy="select"
+    )
 
     def __repr__(self) -> str:
         return (

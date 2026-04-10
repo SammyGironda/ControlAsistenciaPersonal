@@ -31,7 +31,7 @@ class TipoContratoEnum(str, enum.Enum):
 class EstadoContratoEnum(str, enum.Enum):
     """Estado del contrato."""
     activo = "activo"
-    finalizado = "finalizado"
+    vencido = "vencido"
     rescindido = "rescindido"
 
 
@@ -127,7 +127,7 @@ class Contrato(Base):
     
     @property
     def es_vigente(self) -> bool:
-        """Retorna True si el contrato está activo y no ha finalizado."""
+        """Retorna True si el contrato está activo y no ha vencido."""
         if self.estado != EstadoContratoEnum.activo:
             return False
         if self.fecha_fin is None:

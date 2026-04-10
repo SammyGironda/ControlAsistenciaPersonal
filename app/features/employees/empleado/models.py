@@ -6,7 +6,7 @@ Entidad central del sistema - datos personales y laborales.
 from datetime import datetime, date
 from decimal import Decimal
 from typing import Optional, TYPE_CHECKING, List
-from sqlalchemy import String, Boolean, Integer, ForeignKey, Numeric, Date, Enum as SQLEnum
+from sqlalchemy import String, Boolean, Integer, ForeignKey, Numeric, Date, Enum as SQLEnum, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 import enum
 
@@ -53,6 +53,9 @@ class Empleado(Base):
     """
 
     __tablename__ = "empleado"
+    __table_args__ = (
+        UniqueConstraint("ci_numero", "complemento_dep", "ci_sufijo_homonimo", name="uq_empleado_ci"),
+    )
 
     # --- Columnas de identificación ---
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
@@ -114,7 +117,7 @@ class Empleado(Base):
     # --- Relaciones ---
     departamento: Mapped["Departamento"] = relationship(back_populates="empleados")
     cargo: Mapped["Cargo"] = relationship(back_populates="empleados")
-    # complemento: Mapped["ComplementoDep"] = relationship(back_populates="empleados")
+    complemento: Mapped["ComplementoDep"] = relationship(back_populates="empleados")
 
     # --- Relación con Usuario (Semana 2) ---
     usuario: Mapped[Optional["Usuario"]] = relationship(back_populates="empleado")

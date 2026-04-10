@@ -123,14 +123,12 @@ class Vacacion(Base):
         comment="Total de horas consumidas"
     )
 
-    # Columna generada automáticamente por la BD
-    # horas_pendientes: Mapped[Decimal] = mapped_column(
-    #     Numeric(6, 1),
-    #     Computed("(horas_correspondientes - horas_tomadas)"),
-    #     nullable=False
-    # )
-    # NOTA: SQLAlchemy 2.0 con Computed requiere que definas el SQL directamente
-    # Por ahora lo manejamos como propiedad en el modelo
+    horas_pendientes: Mapped[Decimal] = mapped_column(
+        Numeric(6, 1),
+        Computed("horas_correspondientes - horas_tomadas", persisted=True),
+        nullable=False,
+        comment="Columna generada: horas_correspondientes - horas_tomadas"
+    )
 
     observacion: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
@@ -154,11 +152,6 @@ class Vacacion(Base):
         cascade="all, delete-orphan",
         lazy="select"
     )
-
-    @property
-    def horas_pendientes(self) -> Decimal:
-        """Calcula horas pendientes = horas_correspondientes - horas_tomadas."""
-        return self.horas_correspondientes - self.horas_tomadas
 
     def __repr__(self) -> str:
         return (
@@ -228,13 +221,25 @@ class DetalleVacacion(Base):
     )
 
     tipo_vacacion: Mapped[TipoVacacionEnum] = mapped_column(
-        SQLEnum(TipoVacacionEnum, name="tipo_vacacion_enum", create_constraint=True, native_enum=False),
+        SQLEnum(
+            TipoVacacionEnum,
+            name="tipo_vacacion_enum",
+            create_constraint=True,
+            native_enum=True,
+            schema="rrhh",
+        ),
         nullable=False,
         default=TipoVacacionEnum.goce_de_haber
     )
 
     estado: Mapped[EstadoDetalleVacacionEnum] = mapped_column(
-        SQLEnum(EstadoDetalleVacacionEnum, name="estado_detalle_vacacion_enum", create_constraint=True, native_enum=False),
+        SQLEnum(
+            EstadoDetalleVacacionEnum,
+            name="estado_detalle_vacacion_enum",
+            create_constraint=True,
+            native_enum=True,
+            schema="rrhh",
+        ),
         nullable=False,
         default=EstadoDetalleVacacionEnum.solicitado
     )
@@ -263,6 +268,7 @@ class DetalleVacacion(Base):
 
     justificacion: Mapped[Optional["JustificacionAusencia"]] = relationship(
         "JustificacionAusencia",
+        back_populates="detalles_vacacion",
         lazy="select"
     )
 

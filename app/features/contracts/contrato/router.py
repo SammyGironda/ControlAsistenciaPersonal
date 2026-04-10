@@ -54,7 +54,7 @@ def get_all_contratos(
     skip: int = Query(0, ge=0, description="Offset para paginación"),
     limit: int = Query(100, ge=1, le=500, description="Cantidad máxima de resultados"),
     tipo_contrato: Optional[str] = Query(None, pattern="^(indefinido|plazo_fijo)$", description="Filtrar por tipo"),
-    estado: Optional[str] = Query(None, pattern="^(activo|finalizado|rescindido)$", description="Filtrar por estado"),
+    estado: Optional[str] = Query(None, pattern="^(activo|vencido|rescindido)$", description="Filtrar por estado"),
     db: Session = Depends(get_db)
 ):
     """Lista todos los contratos con filtros opcionales."""
@@ -135,7 +135,7 @@ def update_contrato(
     "/{contrato_id}/finalizar",
     response_model=ContratoResponse,
     summary="Finalizar contrato",
-    description="Cambia el estado del contrato a 'finalizado' (finalización normal)"
+    description="Cambia el estado del contrato a 'vencido' (finalización normal)"
 )
 def finalizar_contrato(
     contrato_id: int = Path(..., gt=0),

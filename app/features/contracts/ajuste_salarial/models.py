@@ -26,13 +26,13 @@ class MotivoAjusteEnum(str, enum.Enum):
     Motivo del ajuste salarial.
     - decreto_anual: Incremento por decreto supremo del gobierno (solo para contratos indefinidos).
     - renovacion: Renovación de contrato plazo_fijo con nuevo salario.
-    - merito: Incremento por desempeño destacado.
-    - promocion: Incremento por cambio de cargo.
+    - ascenso: Incremento por cambio de cargo/posición.
+    - renegociacion: Incremento por acuerdo de renegociación salarial.
     """
     decreto_anual = "decreto_anual"
     renovacion = "renovacion"
-    merito = "merito"
-    promocion = "promocion"
+    ascenso = "ascenso"
+    renegociacion = "renegociacion"
 
 
 # ============================================================
@@ -300,6 +300,12 @@ class ParametroImpuesto(Base):
         nullable=False,
         comment="Nombre del concepto: RC_IVA, AFP_LABORAL, AFP_PATRONAL, etc."
     )
+    tipo_aporte: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="LABORAL",
+        comment="LABORAL o PATRONAL"
+    )
     porcentaje: Mapped[Decimal] = mapped_column(
         Numeric(5, 2),
         nullable=False,
@@ -331,6 +337,10 @@ class ParametroImpuesto(Base):
         CheckConstraint(
             "porcentaje >= 0",
             name="chk_parametro_porcentaje"
+        ),
+        CheckConstraint(
+            "tipo_aporte IN ('LABORAL', 'PATRONAL')",
+            name="chk_parametro_tipo_aporte"
         ),
     )
     

@@ -124,7 +124,7 @@ class ArchivoExcelUpdate(BaseModel):
 
 class IncidenciaMarcacionBase(BaseModel):
     """Campos comunes para incidencia."""
-    tipo_incidencia: str = Field(..., pattern="^(marcacion_huerfana|marcacion_duplicada|horario_irregular)$")
+    tipo_incidencia: str = Field(..., pattern="^(huerfana|duplicada|inconsistente)$")
     evidencia_url: Optional[str] = Field(None, max_length=255)
     descripcion_resolucion: Optional[str] = Field(None, max_length=5000)
 
@@ -137,7 +137,7 @@ class IncidenciaMarcacionCreate(IncidenciaMarcacionBase):
         json_schema_extra={
             "example": {
                 "id_marcacion": 123,
-                "tipo_incidencia": "marcacion_huerfana",
+                "tipo_incidencia": "huerfana",
                 "descripcion_resolucion": "Empleado olvidó marcar salida"
             }
         }
@@ -159,7 +159,7 @@ class IncidenciaMarcacionResponse(IncidenciaMarcacionBase):
 
 class IncidenciaMarcacionUpdate(BaseModel):
     """Schema para resolver incidencia."""
-    estado_resolucion: str = Field(..., pattern="^(pendiente|revisado|resuelto|descartado)$")
+    estado_resolucion: str = Field(..., pattern="^(pendiente|resuelto|ignorado)$")
     evidencia_url: Optional[str] = Field(None, max_length=255)
     descripcion_resolucion: Optional[str] = Field(None, max_length=5000)
     id_resuelto_por: Optional[int] = Field(None, gt=0)

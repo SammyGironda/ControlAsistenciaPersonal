@@ -43,17 +43,16 @@ class EstadoProcesamientoEnum(str, enum.Enum):
 
 class TipoIncidenciaEnum(str, enum.Enum):
     """Tipo de incidencia en marcación."""
-    marcacion_huerfana = "marcacion_huerfana"
-    marcacion_duplicada = "marcacion_duplicada"
-    horario_irregular = "horario_irregular"
+    huerfana = "huerfana"
+    duplicada = "duplicada"
+    inconsistente = "inconsistente"
 
 
 class EstadoResolucionEnum(str, enum.Enum):
     """Estado de resolución de una incidencia."""
     pendiente = "pendiente"
-    revisado = "revisado"
     resuelto = "resuelto"
-    descartado = "descartado"
+    ignorado = "ignorado"
 
 
 # ============================================================
@@ -258,11 +257,23 @@ class IncidenciaMarcacion(Base):
         unique=True
     )
     tipo_incidencia: Mapped[TipoIncidenciaEnum] = mapped_column(
-        SQLEnum(TipoIncidenciaEnum, name="tipo_incidencia_enum", create_constraint=True, native_enum=False),
+        SQLEnum(
+            TipoIncidenciaEnum,
+            name="tipo_incidencia_enum",
+            create_constraint=True,
+            native_enum=False,
+            length=19,
+        ),
         nullable=False
     )
     estado_resolucion: Mapped[EstadoResolucionEnum] = mapped_column(
-        SQLEnum(EstadoResolucionEnum, name="estado_resolucion_enum", create_constraint=True, native_enum=False),
+        SQLEnum(
+            EstadoResolucionEnum,
+            name="estado_resolucion_enum",
+            create_constraint=True,
+            native_enum=False,
+            length=10,
+        ),
         default=EstadoResolucionEnum.pendiente,
         nullable=False
     )
@@ -274,7 +285,7 @@ class IncidenciaMarcacion(Base):
     descripcion_resolucion: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     id_resuelto_por: Mapped[Optional[int]] = mapped_column(
         Integer,
-        ForeignKey("usuario.id", ondelete="SET NULL"),
+        ForeignKey("empleado.id", ondelete="SET NULL"),
         nullable=True,
         comment="SET NULL: preservar historial aunque el usuario sea eliminado"
     )
@@ -291,7 +302,11 @@ class IncidenciaMarcacion(Base):
         "Marcacion",
         back_populates="incidencia"
     )
-    resuelto_por: Mapped[Optional["Usuario"]] = relationship("Usuario")
+    resuelto_por: Mapped[Optional["Empleado"]] = relationship(
+        "Empleado",
+        foreign_keys=[id_resuelto_por],
+        lazy="select",
+    )
 
     def __repr__(self) -> str:
         return f"<IncidenciaMarcacion(id={self.id}, marcacion_id={self.id_marcacion}, tipo='{self.tipo_incidencia}', estado='{self.estado_resolucion}')>"

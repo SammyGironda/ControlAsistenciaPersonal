@@ -17,7 +17,7 @@ class AjusteSalarialBase(BaseModel):
     salario_anterior: Decimal = Field(..., gt=0, max_digits=10, decimal_places=2)
     salario_nuevo: Decimal = Field(..., gt=0, max_digits=10, decimal_places=2)
     fecha_vigencia: date = Field(..., description="Fecha desde la cual rige el nuevo salario")
-    motivo: str = Field(..., pattern="^(decreto_anual|renovacion|merito|promocion)$")
+    motivo: str = Field(..., pattern="^(decreto_anual|renovacion|ascenso|renegociacion)$")
     id_aprobado_por: Optional[int] = Field(None, description="ID del empleado que aprobó")
     observacion: Optional[str] = Field(None, max_length=5000)
     
@@ -184,6 +184,7 @@ class DecretoResponse(DecretoBase):
 class ParametroImpuestoBase(BaseModel):
     """Campos comunes para parámetro de impuesto."""
     nombre: str = Field(..., max_length=50, description="RC_IVA, AFP_LABORAL, etc.")
+    tipo_aporte: str = Field(..., pattern="^(LABORAL|PATRONAL)$", description="Tipo de aporte")
     porcentaje: Decimal = Field(..., ge=0, max_digits=5, decimal_places=2, description="Porcentaje (ej: 13.00 = 13%)")
     fecha_vigencia_inicio: date
     fecha_vigencia_fin: Optional[date] = Field(None, description="NULL = vigente indefinidamente")
@@ -206,6 +207,7 @@ class ParametroImpuestoCreate(ParametroImpuestoBase):
         json_schema_extra={
             "example": {
                 "nombre": "RC_IVA",
+                "tipo_aporte": "LABORAL",
                 "porcentaje": 13.00,
                 "fecha_vigencia_inicio": "1992-01-01",
                 "fecha_vigencia_fin": None,

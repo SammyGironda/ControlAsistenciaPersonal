@@ -359,11 +359,11 @@ def _detectar_incidencias(db: Session, marcacion: Marcacion):
     Detecta incidencias en una marcación recién creada.
 
     Tipos de incidencia:
-    - marcacion_huerfana: No tiene pareja del tipo opuesto
-    - marcacion_duplicada: Dos marcaciones del mismo tipo consecutivas
+    - huerfana: No tiene pareja del tipo opuesto
+    - duplicada: Dos marcaciones del mismo tipo consecutivas
     """
-    # Detectar duplicadas (mismo tipo en ventana de 2 horas)
-    delta = timedelta(hours=2)
+    # Detectar duplicadas (mismo tipo en ventana de 5 minutos)
+    delta = timedelta(minutes=5)
     duplicadas = db.query(Marcacion).filter(
         and_(
             Marcacion.id_empleado == marcacion.id_empleado,
@@ -387,7 +387,7 @@ def _detectar_incidencias(db: Session, marcacion: Marcacion):
         if not incidencia_existente:
             incidencia = IncidenciaMarcacion(
                 id_marcacion=marcacion.id,
-                tipo_incidencia=TipoIncidenciaEnum.marcacion_duplicada
+                tipo_incidencia=TipoIncidenciaEnum.duplicada
             )
             db.add(incidencia)
 
@@ -414,7 +414,7 @@ def _detectar_incidencias(db: Session, marcacion: Marcacion):
         if not incidencia_existente:
             incidencia = IncidenciaMarcacion(
                 id_marcacion=marcacion.id,
-                tipo_incidencia=TipoIncidenciaEnum.marcacion_huerfana
+                tipo_incidencia=TipoIncidenciaEnum.huerfana
             )
             db.add(incidencia)
 

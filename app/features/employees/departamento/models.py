@@ -13,6 +13,7 @@ from app.db.base import Base
 if TYPE_CHECKING:
     from app.features.employees.cargo.models import Cargo
     from app.features.employees.empleado.models import Empleado
+    from app.features.attendance.feriados.models import DiaFestivo
 
 
 class ComplementoDep(Base):
@@ -40,7 +41,11 @@ class ComplementoDep(Base):
     activo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     # --- Relaciones ---
-    # empleados: Mapped[List["Empleado"]] = relationship(back_populates="complemento")
+    empleados: Mapped[List["Empleado"]] = relationship(back_populates="complemento")
+    feriados: Mapped[List["DiaFestivo"]] = relationship(
+        back_populates="complemento",
+        lazy="select",
+    )
 
     def __repr__(self) -> str:
         return f"<ComplementoDep(codigo='{self.codigo}', nombre='{self.nombre_departamento}')>"

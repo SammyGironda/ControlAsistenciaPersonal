@@ -6,7 +6,7 @@ Incluye flujo de aprobación y cálculo automático de horas.
 from datetime import date, datetime, time
 from decimal import Decimal
 from typing import Optional, TYPE_CHECKING
-from sqlalchemy import String, Integer, ForeignKey, Boolean, Date, Time, Numeric, Text, DateTime, Enum as SQLEnum
+from sqlalchemy import String, Integer, ForeignKey, Boolean, Date, Time, Numeric, Text, DateTime, Enum as SQLEnum, CheckConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 import enum
 
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from app.features.employees.empleado.models import Empleado
     from app.features.attendance.asistencia_diaria.models import AsistenciaDiaria
     from app.features.attendance.beneficio_cumpleanos.models import BeneficioCumpleanos
-    # from app.features.attendance.vacaciones.models import DetalleVacacion  # Se activará después
+    from app.features.attendance.vacaciones.models import DetalleVacacion
 
 
 # --- ENUMs ---
@@ -79,7 +79,18 @@ class JustificacionAusencia(Base):
     """
 
     __tablename__ = "justificacion_ausencia"
-    __table_args__ = {"schema": "rrhh"}
+    __table_args__ = (
+        CheckConstraint(
+            "fecha_fin >= fecha_inicio",
+            name="chk_justificacion_fechas"
+        ),
+        CheckConstraint(
+            "(es_por_horas = FALSE AND hora_inicio_permiso IS NULL AND hora_fin_permiso IS NULL AND total_horas_permiso IS NULL) OR "
+            "(es_por_horas = TRUE AND hora_inicio_permiso IS NOT NULL AND hora_fin_permiso IS NOT NULL AND hora_fin_permiso > hora_inicio_permiso AND total_horas_permiso IS NOT NULL AND total_horas_permiso > 0)",
+            name="chk_permiso_horas"
+        ),
+        {"schema": "rrhh"}
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
 
@@ -102,12 +113,24 @@ class JustificacionAusencia(Base):
     )
 
     tipo_justificacion: Mapped[TipoJustificacionEnum] = mapped_column(
-        SQLEnum(TipoJustificacionEnum, name="tipo_justificacion_enum", create_constraint=True, native_enum=False),
+        SQLEnum(
+            TipoJustificacionEnum,
+            name="tipo_justificacion_enum",
+            create_constraint=True,
+            native_enum=True,
+            schema="rrhh",
+        ),
         nullable=False
     )
 
     tipo_permiso: Mapped[TipoPermisoEnum] = mapped_column(
-        SQLEnum(TipoPermisoEnum, name="tipo_permiso_enum", create_constraint=True, native_enum=False),
+        SQLEnum(
+            TipoPermisoEnum,
+            name="tipo_permiso_enum",
+            create_constraint=True,
+            native_enum=True,
+            schema="rrhh",
+        ),
         nullable=False,
         default=TipoPermisoEnum.dia_completo
     )
@@ -152,7 +175,13 @@ class JustificacionAusencia(Base):
     )
 
     estado_aprobacion: Mapped[EstadoAprobacionEnum] = mapped_column(
-        SQLEnum(EstadoAprobacionEnum, name="estado_aprobacion_enum", create_constraint=True, native_enum=False),
+        SQLEnum(
+            EstadoAprobacionEnum,
+            name="estado_aprobacion_enum",
+            create_constraint=True,
+            native_enum=True,
+            schema="rrhh",
+        ),
         nullable=False,
         default=EstadoAprobacionEnum.pendiente
     )
@@ -197,19 +226,17 @@ class JustificacionAusencia(Base):
         lazy="select"
     )
 
-    # Relación con BeneficioCumpleanos (opcional)
-    # beneficio_cumpleanos: Mapped[Optional["BeneficioCumpleanos"]] = relationship(
-    #     "BeneficioCumpleanos",
-    #     back_populates="justificacion",
-    #     lazy="select"
-    # )
+    beneficios_cumpleanos: Mapped[list["BeneficioCumpleanos"]] = relationship(
+        "BeneficioCumpleanos",
+        back_populates="justificacion",
+        lazy="select"
+    )
 
-    # Relación con DetalleVacacion (se activará después)
-    # detalles_vacacion: Mapped[list["DetalleVacacion"]] = relationship(
-    #     "DetalleVacacion",
-    #     back_populates="justificacion",
-    #     lazy="select"
-    # )
+    detalles_vacacion: Mapped[list["DetalleVacacion"]] = relationship(
+        "DetalleVacacion",
+        back_populates="justificacion",
+        lazy="select"
+    )
 
     def __repr__(self) -> str:
         return (

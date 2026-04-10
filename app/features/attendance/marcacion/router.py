@@ -136,7 +136,7 @@ def get_marcaciones_duplicadas(
     """
     Obtiene marcaciones duplicadas.
 
-    Una marcación es duplicada cuando hay dos del mismo tipo en ventana de 2 horas.
+    Una marcación es duplicada cuando hay dos del mismo tipo en ventana de 5 minutos.
     """
     return services.get_marcaciones_duplicadas(db, skip, limit)
 
@@ -213,7 +213,7 @@ def get_incidencias_pendientes(
     """
     Obtiene incidencias pendientes de resolución.
 
-    Retorna marcaciones huérfanas, duplicadas o con horarios irregulares
+    Retorna marcaciones huérfanas, duplicadas o inconsistentes
     que aún no han sido revisadas por RRHH.
     """
     return services.get_incidencias_pendientes(db, skip, limit)

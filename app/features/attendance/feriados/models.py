@@ -59,7 +59,13 @@ class DiaFestivo(Base):
     )
 
     ambito: Mapped[AmbitoFestivoEnum] = mapped_column(
-        SQLEnum(AmbitoFestivoEnum, name="ambito_festivo_enum", create_constraint=True, native_enum=False),
+        SQLEnum(
+            AmbitoFestivoEnum,
+            name="ambito_festivo_enum",
+            create_constraint=True,
+            native_enum=True,
+            schema="rrhh",
+        ),
         nullable=False,
         comment="NACIONAL aplica a todos, DEPARTAMENTAL solo al departamento indicado"
     )
@@ -80,11 +86,12 @@ class DiaFestivo(Base):
     )
 
     # --- Relaciones ---
-    # complemento: Mapped[Optional["ComplementoDep"]] = relationship(
-    #     "ComplementoDep",
-    #     foreign_keys=[codigo_departamento],
-    #     lazy="select"
-    # )
+    complemento: Mapped[Optional["ComplementoDep"]] = relationship(
+        "ComplementoDep",
+        back_populates="feriados",
+        foreign_keys=[codigo_departamento],
+        lazy="select"
+    )
 
     def __repr__(self) -> str:
         return (

@@ -197,8 +197,6 @@ def actualizar_justificacion(
         )
 
     # Aplicar cambios
-    if data.id_empleado is not None:
-        justificacion.id_empleado = data.id_empleado
     if data.fecha_inicio is not None:
         justificacion.fecha_inicio = data.fecha_inicio
     if data.fecha_fin is not None:

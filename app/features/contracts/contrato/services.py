@@ -148,7 +148,7 @@ def get_all_contratos(
 
 def finalizar_contrato(db: Session, contrato_id: int, observacion: Optional[str] = None) -> Contrato:
     """
-    Finaliza un contrato (cambio de estado a 'finalizado').
+    Finaliza un contrato (cambio de estado a 'vencido').
     
     Se usa cuando el contrato termina de forma normal (ej: vencimiento plazo_fijo).
     """
@@ -165,7 +165,7 @@ def finalizar_contrato(db: Session, contrato_id: int, observacion: Optional[str]
             detail=f"El contrato no está activo (estado actual: {contrato.estado})"
         )
     
-    contrato.estado = EstadoContratoEnum.finalizado
+    contrato.estado = EstadoContratoEnum.vencido
     if observacion:
         contrato.observacion = f"{contrato.observacion or ''}\n[FINALIZADO] {observacion}".strip()
     
@@ -249,7 +249,7 @@ def renovar_contrato_plazo_fijo(
         )
     
     # Finalizar contrato anterior
-    contrato_anterior.estado = EstadoContratoEnum.finalizado
+    contrato_anterior.estado = EstadoContratoEnum.vencido
     contrato_anterior.observacion = f"{contrato_anterior.observacion or ''}\n[RENOVADO] Nuevo contrato creado".strip()
     
     # Crear nuevo contrato

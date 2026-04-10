@@ -67,13 +67,13 @@ class ContratoCreate(ContratoBase):
 
 class ContratoUpdate(BaseModel):
     """Schema para actualizar un contrato (solo campos editables)."""
-    estado: Optional[str] = Field(None, pattern="^(activo|finalizado|rescindido)$")
+    estado: Optional[str] = Field(None, pattern="^(activo|vencido|rescindido)$")
     observacion: Optional[str] = Field(None, max_length=5000)
     
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "estado": "finalizado",
+                "estado": "vencido",
                 "observacion": "Finalizado por mutuo acuerdo"
             }
         }
@@ -120,7 +120,7 @@ class ContratoResponse(ContratoBase):
     updated_at: datetime
     
     # Campos calculados
-    es_vigente: bool = Field(description="True si el contrato está activo y no ha finalizado")
+    es_vigente: bool = Field(description="True si el contrato está activo y no ha vencido")
     
     model_config = ConfigDict(from_attributes=True)
 

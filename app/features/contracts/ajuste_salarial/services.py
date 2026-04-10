@@ -7,7 +7,7 @@ from datetime import date
 from typing import List, Optional, Dict, Any
 from decimal import Decimal
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, text
+from sqlalchemy import and_, text, or_
 from fastapi import HTTPException, status
 
 from app.features.contracts.ajuste_salarial.models import (
@@ -361,6 +361,7 @@ def create_parametro_impuesto(db: Session, data: ParametroImpuestoCreate) -> Par
     """
     parametro = ParametroImpuesto(
         nombre=data.nombre,
+        tipo_aporte=data.tipo_aporte,
         porcentaje=data.porcentaje,
         fecha_vigencia_inicio=data.fecha_vigencia_inicio,
         fecha_vigencia_fin=data.fecha_vigencia_fin,
