@@ -89,6 +89,9 @@ from app.features.attendance.vacaciones.models import (  # noqa: F401
     Vacacion, DetalleVacacion, TipoVacacionEnum, EstadoDetalleVacacionEnum
 )
 
+# --- Semana 8: Reports ---
+from app.features.reports.reporte.models import Reporte, TipoReporteEnum, FormatoReporteEnum  # noqa: F401
+
 
 # ============================================================
 # ROUTERS - Se agregan por semana
@@ -137,8 +140,8 @@ app.include_router(justificacion_router, prefix=settings.API_PREFIX)
 app.include_router(vacaciones_router, prefix=settings.API_PREFIX)
 
 # --- Semana 8: Reports ---
-# from app.features.reports.reporte.router import router as reporte_router
-# app.include_router(reporte_router, prefix=settings.API_PREFIX)
+from app.features.reports.reporte.router import router as reporte_router
+app.include_router(reporte_router, prefix=settings.API_PREFIX)
 
 
 # ============================================================

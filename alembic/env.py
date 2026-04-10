@@ -47,7 +47,7 @@ from app.features.attendance.justificacion.models import JustificacionAusencia  
 from app.features.attendance.vacaciones.models import Vacacion, DetalleVacacion  # noqa: F401
 
 # --- Semana 8: Reports ---
-# from app.features.reports.reporte.models import Reporte
+from app.features.reports.reporte.models import Reporte  # noqa: F401
 # ============================================================
 
 settings = get_settings()

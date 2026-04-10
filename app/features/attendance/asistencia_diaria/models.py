@@ -88,10 +88,9 @@ class AsistenciaDiaria(Base):
         nullable=True
     )
     
-    # Semana 7: JustificacionAusencia - FK se agrega en migración ALTER TABLE
     id_justificacion: Mapped[Optional[int]] = mapped_column(
         Integer,
-        # ForeignKey se agrega en la migración después de crear justificacion_ausencia
+        ForeignKey("rrhh.justificacion_ausencia.id", ondelete="SET NULL"),
         nullable=True
     )
     
