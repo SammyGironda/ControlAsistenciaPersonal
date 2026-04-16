@@ -14,7 +14,7 @@ from app.db.base import Base
 
 if TYPE_CHECKING:
     from app.features.employees.empleado.models import Empleado
-    from app.features.contracts.ajuste_salarial.models import DecretoIncrementoSalarial, AjusteSalarial
+    from app.features.contracts.ajuste_salarial.models import AjusteSalarial
 
 
 # --- ENUMs ---
@@ -44,7 +44,7 @@ class Contrato(Base):
     - Contrato indefinido: fecha_fin=NULL. Incrementos salariales anuales se registran en ajuste_salarial.
     - Contrato plazo_fijo: fecha_fin obligatoria. Al renovar se crea NUEVO contrato (no ajuste).
     - Solo un contrato activo por empleado en un momento dado.
-    - id_decreto_origen registra si el contrato nació de una renovación por decreto.
+    - documento_contrato_url guarda el enlace al contrato escaneado o digital.
     """
     
     __tablename__ = "contrato"
@@ -77,12 +77,11 @@ class Contrato(Base):
         nullable=False
     )
     
-    # --- Relación con decreto (opcional) ---
-    id_decreto_origen: Mapped[Optional[int]] = mapped_column(
-        Integer,
-        ForeignKey("decreto_incremento_salarial.id", ondelete="SET NULL"),
+    # --- Documento del contrato ---
+    documento_contrato_url: Mapped[Optional[str]] = mapped_column(
+        String(255),
         nullable=True,
-        comment="Referencia al decreto si el contrato nació de una renovación por decreto"
+        comment="URL del contrato escaneado o digital"
     )
     
     # --- Observaciones ---
@@ -112,10 +111,6 @@ class Contrato(Base):
     
     # --- Relaciones ---
     empleado: Mapped["Empleado"] = relationship("Empleado", back_populates="contratos")
-    decreto_origen: Mapped[Optional["DecretoIncrementoSalarial"]] = relationship(
-        "DecretoIncrementoSalarial",
-        back_populates="contratos_originados"
-    )
     ajustes_salariales: Mapped[List["AjusteSalarial"]] = relationship(
         "AjusteSalarial",
         back_populates="contrato",

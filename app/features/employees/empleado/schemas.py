@@ -52,7 +52,7 @@ class EmpleadoBase(BaseModel):
 
 class EmpleadoCreate(EmpleadoBase):
     """Schema para crear un empleado."""
-    estado: str = Field(default="activo", pattern="^(activo|baja|suspendido)$")
+    estado: str = Field(default="por_habilitar", pattern="^(por_habilitar|suspendido)$")
 
 
 class EmpleadoUpdate(BaseModel):

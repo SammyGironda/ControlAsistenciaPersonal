@@ -54,7 +54,7 @@ def create_empleado(
 def get_all_empleados(
     skip: int = Query(0, ge=0, description="Offset para paginación"),
     limit: int = Query(100, ge=1, le=500, description="Cantidad máxima de resultados"),
-    estado: Optional[str] = Query(None, pattern="^(activo|baja|suspendido)$", description="Filtrar por estado"),
+    estado: Optional[str] = Query(None, pattern="^(activo|baja|por_habilitar|suspendido)$", description="Filtrar por estado"),
     id_departamento: Optional[int] = Query(None, description="Filtrar por departamento"),
     id_cargo: Optional[int] = Query(None, description="Filtrar por cargo"),
     db: Session = Depends(get_db)

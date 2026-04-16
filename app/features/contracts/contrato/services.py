@@ -10,7 +10,13 @@ from sqlalchemy import and_, or_
 from fastapi import HTTPException, status
 
 from app.features.contracts.contrato.models import Contrato, TipoContratoEnum, EstadoContratoEnum
-from app.features.contracts.contrato.schemas import ContratoCreate, ContratoUpdate, ContratoRenovacion
+from app.features.contracts.contrato.schemas import (
+    ContratoCreate,
+    ContratoUpdate,
+    ContratoRenovacion,
+    ContratoCreateIndefinido,
+    ContratoCreatePlazoFijo,
+)
 from app.features.employees.empleado.models import Empleado, EstadoEmpleadoEnum
 
 
@@ -35,10 +41,10 @@ def create_contrato(db: Session, data: ContratoCreate) -> Contrato:
             detail=f"No existe el empleado con ID {data.id_empleado}"
         )
     
-    if empleado.estado != EstadoEmpleadoEnum.activo:
+    if empleado.estado == EstadoEmpleadoEnum.baja:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"El empleado {empleado.nombre_completo} no está activo (estado: {empleado.estado})"
+            detail=f"El empleado {empleado.nombre_completo} está dado de baja (estado: {empleado.estado})"
         )
     
     # Validar que no tenga otro contrato activo
@@ -67,15 +73,46 @@ def create_contrato(db: Session, data: ContratoCreate) -> Contrato:
         fecha_fin=data.fecha_fin,
         salario_base=data.salario_base,
         estado=EstadoContratoEnum.activo,
-        id_decreto_origen=data.id_decreto_origen,
+        documento_contrato_url=data.documento_contrato_url,
         observacion=data.observacion
     )
     
     db.add(contrato)
     db.commit()
     db.refresh(contrato)
+
+    if empleado.estado != EstadoEmpleadoEnum.activo:
+        empleado.estado = EstadoEmpleadoEnum.activo
+        db.commit()
+        db.refresh(empleado)
     
     return contrato
+
+
+def create_contrato_indefinido(db: Session, data: ContratoCreateIndefinido) -> Contrato:
+    contrato_data = ContratoCreate(
+        id_empleado=data.id_empleado,
+        tipo_contrato="indefinido",
+        fecha_inicio=data.fecha_inicio,
+        fecha_fin=None,
+        salario_base=data.salario_base,
+        documento_contrato_url=data.documento_contrato_url,
+        observacion=data.observacion
+    )
+    return create_contrato(db, contrato_data)
+
+
+def create_contrato_plazo_fijo(db: Session, data: ContratoCreatePlazoFijo) -> Contrato:
+    contrato_data = ContratoCreate(
+        id_empleado=data.id_empleado,
+        tipo_contrato="plazo_fijo",
+        fecha_inicio=data.fecha_inicio,
+        fecha_fin=data.fecha_fin,
+        salario_base=data.salario_base,
+        documento_contrato_url=data.documento_contrato_url,
+        observacion=data.observacion
+    )
+    return create_contrato(db, contrato_data)
 
 
 def get_contrato_by_id(db: Session, contrato_id: int) -> Optional[Contrato]:
@@ -260,6 +297,7 @@ def renovar_contrato_plazo_fijo(
         fecha_fin=data.fecha_fin,
         salario_base=data.salario_base,
         estado=EstadoContratoEnum.activo,
+        documento_contrato_url=data.documento_contrato_url,
         observacion=f"Renovación de contrato ID {contrato_id}. {data.observacion or ''}".strip()
     )
     
@@ -285,6 +323,9 @@ def update_contrato(db: Session, contrato_id: int, data: ContratoUpdate) -> Cont
     
     if data.estado is not None:
         contrato.estado = EstadoContratoEnum(data.estado)
+
+    if data.documento_contrato_url is not None:
+        contrato.documento_contrato_url = data.documento_contrato_url
     
     if data.observacion is not None:
         contrato.observacion = data.observacion

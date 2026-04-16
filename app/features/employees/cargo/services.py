@@ -63,7 +63,7 @@ def get_all_cargos(
     skip: int = 0,
     limit: int = 100,
     id_departamento: Optional[int] = None,
-    activo_only: bool = False
+    activo_only: bool = True
 ) -> List[Cargo]:
     """
     Obtiene todos los cargos con paginación y filtros opcionales.

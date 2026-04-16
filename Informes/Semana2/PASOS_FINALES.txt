@@ -1,0 +1,30 @@
+========================================
+PASOS FINALES - SEMANA 2
+========================================
+
+PASO 1: Generar migración
+--------------------------
+alembic revision --autogenerate -m "semana2_auth_usuario"
+
+PASO 2: Aplicar migración
+--------------------------
+alembic upgrade head
+
+PASO 3: Ejecutar seed
+--------------------------
+python scripts/seed_inicial.py
+
+PASO 4: Iniciar aplicación
+--------------------------
+uvicorn app.main:app --reload --port 8000
+
+PASO 5: Probar en navegador
+--------------------------
+http://localhost:8000/docs
+
+PASO 6: Probar login admin
+---------------------------
+Username: admin
+Password: admin123
+
+========================================

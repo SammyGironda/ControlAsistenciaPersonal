@@ -76,7 +76,7 @@ def upgrade() -> None:
     sa.Column('fecha_nacimiento', sa.Date(), nullable=False),
     sa.Column('genero', sa.Enum('masculino', 'femenino', 'otro', name='genero_enum', native_enum=False, create_constraint=True), nullable=False),
     sa.Column('fecha_ingreso', sa.Date(), nullable=False),
-    sa.Column('estado', sa.Enum('activo', 'baja', 'suspendido', name='estado_empleado_enum', native_enum=False, create_constraint=True), nullable=False),
+    sa.Column('estado', sa.Enum('activo', 'baja', 'por_habilitar', 'suspendido', name='estado_empleado_enum', native_enum=False, create_constraint=True), nullable=False, server_default='por_habilitar'),
     sa.Column('id_cargo', sa.Integer(), nullable=False),
     sa.Column('id_departamento', sa.Integer(), nullable=False),
     sa.Column('salario_base', sa.Numeric(precision=12, scale=2), nullable=False, comment='Salario vigente en Bs. - se actualiza desde ajuste_salarial'),

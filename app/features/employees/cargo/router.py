@@ -54,7 +54,7 @@ def get_all_cargos(
     skip: int = Query(0, ge=0, description="Offset para paginación"),
     limit: int = Query(100, ge=1, le=500, description="Cantidad máxima de resultados"),
     id_departamento: Optional[int] = Query(None, description="Filtrar por departamento"),
-    activo_only: bool = Query(False, description="Solo cargos activos"),
+    activo_only: bool = Query(True, description="Solo cargos activos"),
     db: Session = Depends(get_db)
 ):
     """Lista todos los cargos con filtros opcionales."""

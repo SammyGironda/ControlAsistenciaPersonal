@@ -19,7 +19,7 @@ class ContratoBase(BaseModel):
     fecha_inicio: date = Field(..., description="Fecha de inicio del contrato")
     fecha_fin: Optional[date] = Field(None, description="Fecha fin (NULL para indefinidos)")
     salario_base: Decimal = Field(..., gt=0, max_digits=10, decimal_places=2, description="Salario inicial en Bs.")
-    id_decreto_origen: Optional[int] = Field(None, description="ID del decreto si aplica")
+    documento_contrato_url: Optional[str] = Field(None, max_length=255, description="URL del contrato escaneado o digital")
     observacion: Optional[str] = Field(None, max_length=5000)
     
     @field_validator('fecha_fin')
@@ -59,7 +59,60 @@ class ContratoCreate(ContratoBase):
                 "fecha_inicio": "2024-01-01",
                 "fecha_fin": None,
                 "salario_base": 3500.00,
+                "documento_contrato_url": "https://storage.example.com/contratos/2024/contrato-001.pdf",
                 "observacion": "Contrato inicial"
+            }
+        }
+    )
+
+
+class ContratoCreateIndefinido(BaseModel):
+    """Schema para crear un contrato indefinido (sin fecha fin)."""
+    id_empleado: int = Field(..., gt=0, description="ID del empleado")
+    fecha_inicio: date = Field(..., description="Fecha de inicio del contrato")
+    salario_base: Decimal = Field(..., gt=0, max_digits=10, decimal_places=2, description="Salario inicial en Bs.")
+    documento_contrato_url: Optional[str] = Field(None, max_length=255, description="URL del contrato escaneado o digital")
+    observacion: Optional[str] = Field(None, max_length=5000)
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "id_empleado": 1,
+                "fecha_inicio": "2024-01-01",
+                "salario_base": 3500.00,
+                "documento_contrato_url": "https://storage.example.com/contratos/2024/contrato-001.pdf",
+                "observacion": "Contrato indefinido"
+            }
+        }
+    )
+
+
+class ContratoCreatePlazoFijo(BaseModel):
+    """Schema para crear un contrato plazo fijo (con fecha fin)."""
+    id_empleado: int = Field(..., gt=0, description="ID del empleado")
+    fecha_inicio: date = Field(..., description="Fecha de inicio del contrato")
+    fecha_fin: date = Field(..., description="Fecha fin del contrato")
+    salario_base: Decimal = Field(..., gt=0, max_digits=10, decimal_places=2, description="Salario inicial en Bs.")
+    documento_contrato_url: Optional[str] = Field(None, max_length=255, description="URL del contrato escaneado o digital")
+    observacion: Optional[str] = Field(None, max_length=5000)
+
+    @field_validator('fecha_fin')
+    @classmethod
+    def validar_fecha_fin(cls, v, info):
+        fecha_inicio = info.data.get('fecha_inicio')
+        if fecha_inicio and v <= fecha_inicio:
+            raise ValueError('fecha_fin debe ser posterior a fecha_inicio')
+        return v
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "id_empleado": 1,
+                "fecha_inicio": "2024-01-01",
+                "fecha_fin": "2024-12-31",
+                "salario_base": 3500.00,
+                "documento_contrato_url": "https://storage.example.com/contratos/2024/contrato-002.pdf",
+                "observacion": "Contrato plazo fijo"
             }
         }
     )
@@ -68,12 +121,14 @@ class ContratoCreate(ContratoBase):
 class ContratoUpdate(BaseModel):
     """Schema para actualizar un contrato (solo campos editables)."""
     estado: Optional[str] = Field(None, pattern="^(activo|vencido|rescindido)$")
+    documento_contrato_url: Optional[str] = Field(None, max_length=255, description="URL del contrato escaneado o digital")
     observacion: Optional[str] = Field(None, max_length=5000)
     
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
                 "estado": "vencido",
+                "documento_contrato_url": "https://storage.example.com/contratos/2024/contrato-001.pdf",
                 "observacion": "Finalizado por mutuo acuerdo"
             }
         }
@@ -85,6 +140,7 @@ class ContratoRenovacion(BaseModel):
     fecha_inicio: date = Field(..., description="Fecha inicio del nuevo contrato")
     fecha_fin: date = Field(..., description="Fecha fin del nuevo contrato")
     salario_base: Decimal = Field(..., gt=0, max_digits=10, decimal_places=2, description="Nuevo salario en Bs.")
+    documento_contrato_url: Optional[str] = Field(None, max_length=255, description="URL del contrato escaneado o digital")
     observacion: Optional[str] = Field(None, max_length=5000)
     
     @field_validator('fecha_fin')
@@ -101,6 +157,7 @@ class ContratoRenovacion(BaseModel):
                 "fecha_inicio": "2025-01-01",
                 "fecha_fin": "2025-12-31",
                 "salario_base": 3850.00,
+                "documento_contrato_url": "https://storage.example.com/contratos/2025/contrato-010.pdf",
                 "observacion": "Renovación con incremento del 10%"
             }
         }

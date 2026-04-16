@@ -11,6 +11,8 @@ from app.core.database import get_db
 from app.features.contracts.contrato import services
 from app.features.contracts.contrato.schemas import (
     ContratoCreate,
+    ContratoCreateIndefinido,
+    ContratoCreatePlazoFijo,
     ContratoUpdate,
     ContratoResponse,
     ContratoRenovacion
@@ -42,6 +44,40 @@ def create_contrato(
     - Si es plazo_fijo, debe tener fecha_fin
     """
     return services.create_contrato(db, data)
+
+
+@router.post(
+    "/indefinido",
+    response_model=ContratoResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Crear contrato indefinido",
+    description="Registra un nuevo contrato laboral indefinido"
+)
+def create_contrato_indefinido(
+    data: ContratoCreateIndefinido,
+    db: Session = Depends(get_db)
+):
+    """
+    Crea un nuevo contrato indefinido.
+    """
+    return services.create_contrato_indefinido(db, data)
+
+
+@router.post(
+    "/plazo-fijo",
+    response_model=ContratoResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Crear contrato plazo fijo",
+    description="Registra un nuevo contrato laboral con fecha fin"
+)
+def create_contrato_plazo_fijo(
+    data: ContratoCreatePlazoFijo,
+    db: Session = Depends(get_db)
+):
+    """
+    Crea un nuevo contrato plazo fijo.
+    """
+    return services.create_contrato_plazo_fijo(db, data)
 
 
 @router.get(

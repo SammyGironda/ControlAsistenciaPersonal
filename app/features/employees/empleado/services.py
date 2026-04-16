@@ -81,7 +81,9 @@ def create_empleado(db: Session, data: EmpleadoCreate) -> Empleado:
         )
     
     # Crear empleado
-    empleado = Empleado(**data.model_dump())
+    empleado_data = data.model_dump()
+    empleado_data["estado"] = EstadoEmpleadoEnum.por_habilitar
+    empleado = Empleado(**empleado_data)
     db.add(empleado)
     db.commit()
     db.refresh(empleado)

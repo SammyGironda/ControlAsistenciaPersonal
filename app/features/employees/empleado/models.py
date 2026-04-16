@@ -38,6 +38,7 @@ class EstadoEmpleadoEnum(str, enum.Enum):
     """Estado laboral del empleado."""
     activo = "activo"
     baja = "baja"
+    por_habilitar = "por_habilitar"
     suspendido = "suspendido"
 
 
@@ -49,7 +50,7 @@ class Empleado(Base):
     Campos clave:
     - ci_numero + complemento_dep + ci_sufijo: CI completo según SEGIP
     - salario_base: Salario vigente (se sincroniza desde ajuste_salarial)
-    - estado: activo | baja | suspendido
+    - estado: activo | baja | por_habilitar | suspendido
     """
 
     __tablename__ = "empleado"
@@ -84,7 +85,7 @@ class Empleado(Base):
     fecha_ingreso: Mapped[date] = mapped_column(Date, nullable=False)
     estado: Mapped[EstadoEmpleadoEnum] = mapped_column(
         SQLEnum(EstadoEmpleadoEnum, name="estado_empleado_enum", create_constraint=True, native_enum=False),
-        default=EstadoEmpleadoEnum.activo,
+        default=EstadoEmpleadoEnum.por_habilitar,
         nullable=False
     )
     id_cargo: Mapped[int] = mapped_column(

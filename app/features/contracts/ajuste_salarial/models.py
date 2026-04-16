@@ -86,10 +86,6 @@ class DecretoIncrementoSalarial(Base):
         cascade="all, delete-orphan",
         order_by="CondicionDecreto.orden"
     )
-    contratos_originados: Mapped[List["Contrato"]] = relationship(
-        "Contrato",
-        back_populates="decreto_origen"
-    )
     
     def __repr__(self) -> str:
         return f"<DecretoIncrementoSalarial(id={self.id}, anio={self.anio}, ref='{self.referencia_decreto}')>"

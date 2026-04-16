@@ -37,9 +37,52 @@ CREATE DATABASE rrhh_bolivia;
 
 # Ejecutar migraciones
 alembic upgrade head
+```
 
-# Insertar datos iniciales
-python scripts/seed_inicial.py
+### 3.1 🌱 Base de Datos y Población Inicial (Seed)
+
+**IMPORTANTE:** Leer `/scripts/orden_creacion_entidades.md` ANTES de modelar nuevas entidades para respetar la integridad referencial.
+
+#### Paso 1: Poblar datos base (NIVEL 0 - Entidades Fundacionales)
+
+```bash
+# Inserta: ci_depto_emision_ref, rol, departamento, decreto_incremento_salarial
+python scripts/seed_base_data.py
+```
+
+**Qué se popula:**
+- ✓ 9 códigos departamentales SEGIP (LP, CB, SC, OR, PT, TJ, CH, BE, PD)
+- ✓ 5 roles del sistema (admin, rrhh, supervisor, empleado, consulta)
+- ✓ Estructura jerárquica de departamentos (Gerencia General + 4 gerencias)
+- ✓ Decreto de incremento salarial 2024 con tramos diferenciados
+
+#### Paso 2: Datos operacionales (Opcional - Future Levels)
+
+```bash
+# NIVEL 1: cargos y parámetros de impuesto
+# python scripts/seed_nivel_1.py  (próxima semana)
+
+# NIVEL 2: empleados de ejemplo
+# python scripts/seed_nivel_2.py  (próxima semana)
+
+# NIVEL 3: usuarios, contratos, horarios
+# python scripts/seed_nivel_3.py  (próxima semana)
+```
+
+#### Validar población de datos
+
+```bash
+# Ejecutar migraciones y seed en orden
+alembic upgrade head && python scripts/seed_base_data.py
+
+# Verificar en psql
+psql -U postgres -d rrhh_bolivia -c "
+SELECT schema_name FROM information_schema.schemata WHERE schema_name = 'rrhh';
+SELECT COUNT(*) as complementos FROM rrhh.complemento_dep;
+SELECT COUNT(*) as roles FROM rrhh.rol;
+SELECT COUNT(*) as departamentos FROM rrhh.departamento;
+SELECT COUNT(*) as decretos FROM rrhh.decreto_incremento_salarial;
+"
 ```
 
 ### 4. Ejecutar la aplicación
@@ -47,6 +90,7 @@ python scripts/seed_inicial.py
 ```bash
 uvicorn app.main:app --reload --port 8000
 ```
+
 
 ### 5. Acceder a la documentación
 - Swagger UI: http://localhost:8000/docs

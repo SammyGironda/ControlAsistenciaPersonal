@@ -46,18 +46,16 @@ def create_rol(
 def list_roles(
     skip: int = Query(0, ge=0, description="Cantidad de registros a saltar"),
     limit: int = Query(100, ge=1, le=1000, description="Cantidad máxima de registros"),
-    solo_activos: bool = Query(False, description="Filtrar solo roles activos"),
     db: Session = Depends(get_db)
 ):
     """
     Lista todos los roles del sistema con paginación.
-    
+
     Parámetros de consulta:
     - **skip**: Offset para paginación
     - **limit**: Límite de resultados
-    - **solo_activos**: Si es True, solo retorna roles activos
     """
-    return services.get_roles(db, skip=skip, limit=limit, solo_activos=solo_activos)
+    return services.get_roles(db, skip=skip, limit=limit)
 
 
 @router.get(

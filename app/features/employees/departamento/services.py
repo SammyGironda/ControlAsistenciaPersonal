@@ -4,7 +4,7 @@ Operaciones CRUD + validaciones de negocio.
 """
 
 from typing import List, Optional
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select
 from fastapi import HTTPException, status
 
@@ -214,7 +214,7 @@ def get_jerarquia_departamento(db: Session, departamento_id: int) -> Departament
     stmt = (
         select(Departamento)
         .filter(Departamento.id == departamento_id)
-        .options(joinedload(Departamento.hijos, recursion_depth=5))
+        .options(selectinload(Departamento.hijos, recursion_depth=5))
     )
     result = db.execute(stmt).scalar_one()
     
@@ -230,7 +230,7 @@ def get_departamentos_raiz(db: Session) -> List[DepartamentoConHijos]:
         select(Departamento)
         .filter(Departamento.id_padre.is_(None))
         .filter(Departamento.activo == True)
-        .options(joinedload(Departamento.hijos, recursion_depth=5))
+        .options(selectinload(Departamento.hijos, recursion_depth=5))
     )
     result = db.execute(stmt).scalars().all()
     
