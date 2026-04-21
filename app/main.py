@@ -55,7 +55,8 @@ def health_check():
 # IMPORTAR TODOS LOS MODELOS PRIMERO
 # Esto asegura que SQLAlchemy pueda resolver todas las relaciones
 # ============================================================
-from app.features.employees.departamento.models import Departamento, ComplementoDep  # noqa: F401
+from app.features.employees.departamento.models import Departamento  # noqa: F401
+from app.features.employees.complementodepartamento.models import ComplementoDep  # noqa: F401
 from app.features.employees.cargo.models import Cargo  # noqa: F401
 from app.features.employees.empleado.models import Empleado  # noqa: F401
 from app.features.employees.horario.models import Horario, AsignacionHorario  # noqa: F401

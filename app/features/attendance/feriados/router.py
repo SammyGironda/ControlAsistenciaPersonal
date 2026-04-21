@@ -74,7 +74,7 @@ def listar_feriados(
     - `activo`: true/false para filtrar por estado
     - `ambito`: NACIONAL o DEPARTAMENTAL
     - `anio`: filtrar por año específico
-    - `codigo_departamento`: LP, CB, SC, OR, PT, TJ, CH, BE, PA
+    - `codigo_departamento`: LP, CB, SC, OR, PT, TJ, CH, BE, PD
     """
     return services.listar_dias_festivos(
         db,

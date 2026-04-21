@@ -11,7 +11,8 @@ from app.db.base import Base
 # ============================================================
 # --- Semana 1: Modelos base ---
 from app.features.auth.rol.models import Rol  # noqa: F401
-from app.features.employees.departamento.models import Departamento, ComplementoDep  # noqa: F401
+from app.features.employees.departamento.models import Departamento  # noqa: F401
+from app.features.employees.complementodepartamento.models import ComplementoDep  # noqa: F401
 from app.features.employees.cargo.models import Cargo  # noqa: F401
 from app.features.employees.empleado.models import Empleado  # noqa: F401
 

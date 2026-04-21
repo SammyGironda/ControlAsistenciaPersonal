@@ -11,7 +11,8 @@ Uso:
 from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
 from app.features.auth.rol.models import Rol
-from app.features.employees.departamento.models import ComplementoDep, Departamento
+from app.features.employees.departamento.models import Departamento
+from app.features.employees.complementodepartamento.models import ComplementoDep
 from app.features.employees.cargo.models import Cargo
 from datetime import datetime
 
@@ -30,7 +31,7 @@ def seed_complementos_depto(db: Session):
         {"codigo": "TJ", "nombre_departamento": "Tarija"},
         {"codigo": "CH", "nombre_departamento": "Chuquisaca"},
         {"codigo": "BE", "nombre_departamento": "Beni"},
-        {"codigo": "PA", "nombre_departamento": "Pando"},
+        {"codigo": "PD", "nombre_departamento": "Pando"},
     ]
 
     print("\n🇧🇴 Cargando departamentos Bolivia (SEGIP)...")

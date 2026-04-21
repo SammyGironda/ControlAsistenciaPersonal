@@ -1,40 +1,12 @@
 """
-Schemas Pydantic para Departamento y ComplementoDep.
-Validación de entrada/salida de datos.
+Schemas Pydantic para Departamento.
+Validacion de entrada/salida de datos.
 """
 
 from datetime import datetime
 from typing import Optional, List
-from pydantic import BaseModel, Field, field_validator, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict
 
-
-# ========== ComplementoDep Schemas ==========
-
-class ComplementoDepBase(BaseModel):
-    """Schema base para ComplementoDep."""
-    codigo: str = Field(..., min_length=2, max_length=2, description="Código departamento SEGIP (LP, CB, SC, etc.)")
-    nombre_departamento: str = Field(..., min_length=3, max_length=50)
-    activo: bool = True
-
-
-class ComplementoDepCreate(ComplementoDepBase):
-    """Schema para crear un complemento de departamento."""
-    pass
-
-
-class ComplementoDepUpdate(BaseModel):
-    """Schema para actualizar un complemento de departamento."""
-    nombre_departamento: Optional[str] = Field(None, min_length=3, max_length=50)
-    activo: Optional[bool] = None
-
-
-class ComplementoDepResponse(ComplementoDepBase):
-    """Schema de respuesta para ComplementoDep."""
-    
-    model_config = ConfigDict(from_attributes=True)
-
-
-# ========== Departamento Schemas ==========
 
 class DepartamentoBase(BaseModel):
     """Schema base para Departamento."""

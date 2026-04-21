@@ -1,6 +1,6 @@
 """
-Modelos Departamento y ComplementoDep.
-Estructura organizacional jerárquica + códigos de departamento Bolivia (SEGIP).
+Modelo Departamento.
+Estructura organizacional jerarquica.
 """
 
 from datetime import datetime
@@ -13,42 +13,6 @@ from app.db.base import Base
 if TYPE_CHECKING:
     from app.features.employees.cargo.models import Cargo
     from app.features.employees.empleado.models import Empleado
-    from app.features.attendance.feriados.models import DiaFestivo
-
-
-class ComplementoDep(Base):
-    """
-    Tabla: rrhh.complemento_dep
-    Códigos de departamento de Bolivia para emisión de CI (SEGIP).
-
-    Códigos:
-    - LP: La Paz
-    - CB: Cochabamba
-    - SC: Santa Cruz
-    - OR: Oruro
-    - PT: Potosí
-    - TJ: Tarija
-    - CH: Chuquisaca
-    - BE: Beni
-    - PA: Pando
-    """
-
-    __tablename__ = "complemento_dep"
-
-    # --- Columnas ---
-    codigo: Mapped[str] = mapped_column(String(2), primary_key=True)
-    nombre_departamento: Mapped[str] = mapped_column(String(50), nullable=False)
-    activo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-
-    # --- Relaciones ---
-    empleados: Mapped[List["Empleado"]] = relationship(back_populates="complemento")
-    feriados: Mapped[List["DiaFestivo"]] = relationship(
-        back_populates="complemento",
-        lazy="select",
-    )
-
-    def __repr__(self) -> str:
-        return f"<ComplementoDep(codigo='{self.codigo}', nombre='{self.nombre_departamento}')>"
 
 
 class Departamento(Base):

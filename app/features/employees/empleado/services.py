@@ -42,7 +42,7 @@ def create_empleado(db: Session, data: EmpleadoCreate) -> Empleado:
         )
     
     # Validar complemento departamento
-    from app.features.employees.departamento.models import ComplementoDep
+    from app.features.employees.complementodepartamento.models import ComplementoDep
     complemento = db.query(ComplementoDep).filter(
         ComplementoDep.codigo == data.complemento_dep
     ).first()

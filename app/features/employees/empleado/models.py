@@ -13,7 +13,8 @@ import enum
 from app.db.base import Base
 
 if TYPE_CHECKING:
-    from app.features.employees.departamento.models import Departamento, ComplementoDep
+    from app.features.employees.departamento.models import Departamento
+    from app.features.employees.complementodepartamento.models import ComplementoDep
     from app.features.employees.cargo.models import Cargo
     from app.features.auth.usuario.models import Usuario
     from app.features.employees.horario.models import AsignacionHorario
