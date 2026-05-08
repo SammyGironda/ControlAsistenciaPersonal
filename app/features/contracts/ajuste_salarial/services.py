@@ -7,7 +7,7 @@ from datetime import date
 from typing import List, Optional, Dict, Any
 from decimal import Decimal
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, text, or_
+from sqlalchemy import and_, text, or_, func
 from fastapi import HTTPException, status
 
 from app.features.contracts.ajuste_salarial.models import (
@@ -421,7 +421,7 @@ def get_all_parametros_vigentes(db: Session) -> List[ParametroImpuesto]:
     # Subconsulta para obtener el máximo id por nombre (el más reciente vigente)
     subquery = db.query(
         ParametroImpuesto.nombre,
-        db.func.max(ParametroImpuesto.id).label('max_id')
+        func.max(ParametroImpuesto.id).label('max_id')
     ).filter(
         and_(
             ParametroImpuesto.fecha_vigencia_inicio <= date.today(),
