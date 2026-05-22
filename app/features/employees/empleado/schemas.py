@@ -21,7 +21,7 @@ class EmpleadoBase(BaseModel):
     fecha_ingreso: date
     id_cargo: int = Field(..., gt=0)
     id_departamento: int = Field(..., gt=0)
-    salario_base: Decimal = Field(..., gt=0, decimal_places=2, description="Salario en Bolivianos")
+    salario_base: Optional[Decimal] = Field(None, ge=0, decimal_places=2, description="Salario en Bolivianos")
     email: Optional[str] = Field(None, max_length=150)
     telefono: Optional[str] = Field(None, max_length=20)
     foto_url: Optional[str] = Field(None, max_length=255)
@@ -52,6 +52,7 @@ class EmpleadoBase(BaseModel):
 
 class EmpleadoCreate(EmpleadoBase):
     """Schema para crear un empleado."""
+    salario_base: Optional[Decimal] = Field(None, ge=0, decimal_places=2, description="Se establece luego por contrato")
     estado: str = Field(default="por_habilitar", pattern="^(por_habilitar|suspendido)$")
 
 
@@ -63,7 +64,6 @@ class EmpleadoUpdate(BaseModel):
     genero: Optional[str] = Field(None, pattern="^(masculino|femenino|otro)$")
     id_cargo: Optional[int] = Field(None, gt=0)
     id_departamento: Optional[int] = Field(None, gt=0)
-    salario_base: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
     email: Optional[str] = Field(None, max_length=150)
     telefono: Optional[str] = Field(None, max_length=20)
     foto_url: Optional[str] = Field(None, max_length=255)

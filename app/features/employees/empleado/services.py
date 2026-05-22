@@ -5,6 +5,7 @@ Operaciones CRUD + operaciones especiales (baja, suspensión, búsqueda por CI).
 
 from typing import List, Optional
 from datetime import date, datetime
+from decimal import Decimal
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 
@@ -82,17 +83,35 @@ def create_empleado(db: Session, data: EmpleadoCreate) -> Empleado:
     
     # Crear empleado
     empleado_data = data.model_dump()
+    empleado_data["salario_base"] = Decimal("0.00")
     empleado_data["estado"] = EstadoEmpleadoEnum.por_habilitar
     empleado = Empleado(**empleado_data)
-    db.add(empleado)
-    db.commit()
-    db.refresh(empleado)
-    return empleado
+    try:
+        db.add(empleado)
+        db.flush()
+
+        # Validar que la respuesta que regresará FastAPI sea serializable
+        # antes de confirmar la transacción.
+        EmpleadoResponse.model_validate(empleado)
+
+        db.commit()
+        db.refresh(empleado)
+        return empleado
+    except Exception:
+        db.rollback()
+        raise
 
 
 def get_empleado_by_id(db: Session, empleado_id: int) -> Optional[Empleado]:
-    """Obtiene un empleado por ID."""
-    return db.query(Empleado).filter(Empleado.id == empleado_id).first()
+    """Obtiene un empleado por ID.
+
+    Por defecto excluye empleados dados de baja para evitar que se muestren
+    o se modifiquen por accidente desde los flujos normales.
+    """
+    return db.query(Empleado).filter(
+        Empleado.id == empleado_id,
+        Empleado.estado != EstadoEmpleadoEnum.baja
+    ).first()
 
 
 def get_all_empleados(
@@ -101,7 +120,8 @@ def get_all_empleados(
     limit: int = 100,
     estado: Optional[str] = None,
     id_departamento: Optional[int] = None,
-    id_cargo: Optional[int] = None
+    id_cargo: Optional[int] = None,
+    incluir_baja: bool = False
 ) -> List[Empleado]:
     """
     Obtiene todos los empleados con paginación y filtros opcionales.
@@ -117,6 +137,8 @@ def get_all_empleados(
     
     if estado:
         query = query.filter(Empleado.estado == estado)
+    elif not incluir_baja:
+        query = query.filter(Empleado.estado != EstadoEmpleadoEnum.baja)
     
     if id_departamento:
         query = query.filter(Empleado.id_departamento == id_departamento)
@@ -286,7 +308,7 @@ def reactivar_empleado(
     No permite reactivar empleados dados de baja - esos deben
     reingresarse como nuevos.
     """
-    empleado = get_empleado_by_id(db, empleado_id)
+    empleado = db.query(Empleado).filter(Empleado.id == empleado_id).first()
     if not empleado:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -296,7 +318,7 @@ def reactivar_empleado(
     if empleado.estado == EstadoEmpleadoEnum.baja:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No se puede reactivar un empleado dado de baja. Debe reingresarse como nuevo."
+            detail="No se puede reactivar un empleado dado de baja. Use el endpoint de habilitación."
         )
     
     if empleado.estado == EstadoEmpleadoEnum.activo:
@@ -306,6 +328,34 @@ def reactivar_empleado(
         )
     
     empleado.estado = EstadoEmpleadoEnum.activo
+    db.commit()
+    db.refresh(empleado)
+    return empleado
+
+
+def habilitar_empleado(
+    db: Session,
+    empleado_id: int
+) -> Empleado:
+    """
+    Habilita un empleado dado de baja para volver a gestionarlo.
+
+    El empleado sale de estado 'baja' y vuelve a 'por_habilitar'.
+    """
+    empleado = db.query(Empleado).filter(Empleado.id == empleado_id).first()
+    if not empleado:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No existe el empleado con id {empleado_id}"
+        )
+
+    if empleado.estado != EstadoEmpleadoEnum.baja:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Solo se puede habilitar un empleado que esté dado de baja"
+        )
+
+    empleado.estado = EstadoEmpleadoEnum.por_habilitar
     db.commit()
     db.refresh(empleado)
     return empleado

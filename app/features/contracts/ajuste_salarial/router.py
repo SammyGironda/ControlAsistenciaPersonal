@@ -36,15 +36,16 @@ router = APIRouter(
     response_model=AjusteSalarialResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Crear ajuste salarial",
-    description="Registra un nuevo ajuste salarial. El trigger actualiza empleado.salario_base automáticamente."
+    description="Registra un nuevo ajuste salarial para contratos indefinidos a partir del ID del empleado. El backend resuelve el contrato vigente y el salario actual."
 )
 def create_ajuste_salarial(
     data: AjusteSalarialCreate,
     db: Session = Depends(get_db)
 ):
     """
-    Crea un nuevo ajuste salarial.
+    Crea un nuevo ajuste salarial para contratos indefinidos.
     
+    El backend obtiene el contrato vigente y el salario actual del empleado.
     El trigger trg_sync_salario_empleado actualiza automáticamente
     empleado.salario_base si fecha_vigencia <= hoy.
     """

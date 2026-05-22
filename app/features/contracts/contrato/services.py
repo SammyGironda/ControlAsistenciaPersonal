@@ -3,7 +3,7 @@ Services para gestión de contratos laborales.
 Lógica de negocio completa para CRUD y operaciones especiales.
 """
 
-from datetime import date
+from datetime import date, timedelta
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
@@ -77,14 +77,14 @@ def create_contrato(db: Session, data: ContratoCreate) -> Contrato:
         observacion=data.observacion
     )
     
+    empleado.salario_base = data.salario_base
     db.add(contrato)
     db.commit()
     db.refresh(contrato)
 
     if empleado.estado != EstadoEmpleadoEnum.activo:
         empleado.estado = EstadoEmpleadoEnum.activo
-        db.commit()
-        db.refresh(empleado)
+    db.refresh(empleado)
     
     return contrato
 
@@ -284,9 +284,21 @@ def renovar_contrato_plazo_fijo(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="La fecha_inicio del nuevo contrato debe ser posterior al contrato anterior"
         )
+
+    # La renovación debe nacer vigente; si la fecha de inicio ya pasó,
+    # el contrato nuevo quedaría como histórico apenas se crea.
+    if data.fecha_inicio < date.today():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La renovación debe iniciar hoy o en una fecha futura para evitar crear un contrato ya vencido"
+        )
     
     # Finalizar contrato anterior
     contrato_anterior.estado = EstadoContratoEnum.vencido
+    contrato_anterior.fecha_fin = min(
+        contrato_anterior.fecha_fin or data.fecha_inicio - timedelta(days=1),
+        data.fecha_inicio - timedelta(days=1)
+    )
     contrato_anterior.observacion = f"{contrato_anterior.observacion or ''}\n[RENOVADO] Nuevo contrato creado".strip()
     
     # Crear nuevo contrato

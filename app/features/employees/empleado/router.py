@@ -165,6 +165,20 @@ def update_empleado(
 
 
 @router.put(
+    "/{empleado_id}/habilitar",
+    response_model=EmpleadoResponse,
+    summary="Habilitar empleado",
+    description="Restituye un empleado dado de baja y lo deja en estado por_habilitar"
+)
+def habilitar_empleado(
+    empleado_id: int,
+    db: Session = Depends(get_db)
+):
+    """Habilita un empleado dado de baja para que vuelva a gestionarse."""
+    return services.habilitar_empleado(db, empleado_id)
+
+
+@router.put(
     "/{empleado_id}/dar-baja",
     response_model=EmpleadoResponse,
     summary="Dar de baja a un empleado",
@@ -179,7 +193,7 @@ def dar_baja_empleado(
     Da de baja a un empleado.
     
     El empleado permanece en la BD pero con estado='baja'.
-    No se puede reactivar - debe reingresarse como nuevo.
+    Para volver a usarlo, primero debe habilitarse.
     """
     return services.dar_baja_empleado(db, empleado_id, data)
 

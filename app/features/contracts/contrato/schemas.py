@@ -6,7 +6,7 @@ Validaciones de entrada y salida para endpoints REST.
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
-from pydantic import BaseModel, Field, field_validator, ConfigDict
+from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 
 
 # ============================================================
@@ -31,16 +31,13 @@ class ContratoBase(BaseModel):
             if fecha_inicio and v <= fecha_inicio:
                 raise ValueError('fecha_fin debe ser posterior a fecha_inicio')
         return v
-    
-    @field_validator('tipo_contrato')
-    @classmethod
-    def validar_plazo_fijo_tiene_fecha_fin(cls, v, info):
-        """Si es plazo_fijo, debe tener fecha_fin."""
-        if v == 'plazo_fijo':
-            fecha_fin = info.data.get('fecha_fin')
-            if fecha_fin is None:
-                raise ValueError('Contrato plazo_fijo debe tener fecha_fin')
-        return v
+
+    @model_validator(mode='after')
+    def validar_consistencia_contrato(self):
+        """Valida reglas cruzadas del contrato sin depender del orden de los campos."""
+        if self.tipo_contrato == 'plazo_fijo' and self.fecha_fin is None:
+            raise ValueError('Contrato plazo_fijo debe tener fecha_fin')
+        return self
 
 
 # ============================================================

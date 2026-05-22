@@ -31,22 +31,25 @@ class AjusteSalarialBase(BaseModel):
         return v
 
 
-class AjusteSalarialCreate(AjusteSalarialBase):
+class AjusteSalarialCreate(BaseModel):
     """Schema para crear un ajuste salarial."""
     id_empleado: int = Field(..., gt=0)
-    id_contrato: int = Field(..., gt=0)
+    salario_nuevo: Decimal = Field(..., gt=0, max_digits=10, decimal_places=2)
+    fecha_vigencia: date = Field(..., description="Fecha desde la cual rige el nuevo salario")
+    motivo: str = Field(..., pattern="^(decreto_anual|renovacion|ascenso|renegociacion)$")
+    id_aprobado_por: Optional[int] = Field(None, description="ID del empleado que aprobó")
+    observacion: Optional[str] = Field(None, max_length=5000)
     id_condicion_decreto: Optional[int] = Field(None, description="ID de la condición de decreto aplicada")
     
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
                 "id_empleado": 1,
-                "id_contrato": 1,
-                "salario_anterior": 3500.00,
                 "salario_nuevo": 3850.00,
                 "fecha_vigencia": "2024-05-01",
                 "motivo": "decreto_anual",
                 "id_condicion_decreto": 1,
+                "id_aprobado_por": 5,
                 "observacion": "Aplicación DS 4984 - tramo 1"
             }
         }

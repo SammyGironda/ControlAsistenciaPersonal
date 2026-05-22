@@ -16,6 +16,7 @@ from fastapi import HTTPException, status
 from app.features.auth.usuario.models import Usuario
 from app.features.auth.usuario import schemas
 from app.features.auth.rol.services import get_rol
+from app.features.employees.empleado.models import Empleado, EstadoEmpleadoEnum
 
 from app.core.security import verify_password  # disponible por si se necesita directo
 
@@ -73,6 +74,19 @@ def create_usuario(db: Session, usuario_data: schemas.UsuarioCreate) -> Usuario:
     get_rol(db, usuario_data.id_rol)
     
     if usuario_data.id_empleado:
+        empleado = db.get(Empleado, usuario_data.id_empleado)
+        if not empleado:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No existe el empleado con ID {usuario_data.id_empleado}"
+            )
+
+        if empleado.estado == EstadoEmpleadoEnum.baja:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No se puede asociar un usuario a un empleado dado de baja. Primero habilítelo."
+            )
+
         stmt = select(Usuario).where(Usuario.id_empleado == usuario_data.id_empleado)
         existing_usuario = db.execute(stmt).scalar_one_or_none()
         if existing_usuario:

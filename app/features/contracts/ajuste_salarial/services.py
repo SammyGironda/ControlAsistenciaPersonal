@@ -31,9 +31,10 @@ def create_ajuste_salarial(db: Session, data: AjusteSalarialCreate) -> AjusteSal
     Crea un nuevo ajuste salarial.
     
     Validaciones:
-    - El empleado, contrato y condición_decreto (si aplica) deben existir
-    - salario_nuevo debe ser diferente a salario_anterior
-    - El contrato debe estar activo
+    - El empleado debe existir
+    - El empleado debe tener un contrato indefinido activo y vigente
+    - salario_nuevo debe ser diferente al salario actual del empleado
+    - El ajuste salarial manual solo aplica a contratos indefinidos
     
     IMPORTANTE: Al insertar, el trigger trg_sync_salario_empleado actualiza
     automáticamente empleado.salario_base si fecha_vigencia <= hoy.
@@ -46,18 +47,28 @@ def create_ajuste_salarial(db: Session, data: AjusteSalarialCreate) -> AjusteSal
             detail=f"No existe el empleado con ID {data.id_empleado}"
         )
     
-    # Validar contrato
-    contrato = db.query(Contrato).filter(Contrato.id == data.id_contrato).first()
+    # Validar contrato vigente del empleado
+    contrato = db.query(Contrato).filter(
+        and_(
+            Contrato.id_empleado == data.id_empleado,
+            Contrato.estado == EstadoContratoEnum.activo,
+            Contrato.tipo_contrato == TipoContratoEnum.indefinido
+        )
+    ).order_by(Contrato.fecha_inicio.desc()).first()
     if not contrato:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No existe el contrato con ID {data.id_contrato}"
+            detail=f"No existe un contrato indefinido activo para el empleado con ID {data.id_empleado}"
         )
-    
-    if contrato.estado != EstadoContratoEnum.activo:
+
+    salario_anterior = empleado.salario_base
+    if salario_anterior is None or salario_anterior <= 0:
+        salario_anterior = contrato.salario_base
+
+    if salario_anterior == data.salario_nuevo:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"El contrato no está activo (estado: {contrato.estado})"
+            detail="salario_nuevo debe ser diferente al salario actual del empleado"
         )
     
     # Validar condición decreto si se proporciona
@@ -70,13 +81,21 @@ def create_ajuste_salarial(db: Session, data: AjusteSalarialCreate) -> AjusteSal
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"No existe la condición de decreto con ID {data.id_condicion_decreto}"
             )
+
+        if data.id_aprobado_por:
+            aprobador = db.query(Empleado).filter(Empleado.id == data.id_aprobado_por).first()
+            if not aprobador:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"No existe el empleado aprobador con ID {data.id_aprobado_por}"
+                )
     
     # Crear ajuste
     ajuste = AjusteSalarial(
         id_empleado=data.id_empleado,
-        id_contrato=data.id_contrato,
+            id_contrato=contrato.id,
         id_condicion_decreto=data.id_condicion_decreto,
-        salario_anterior=data.salario_anterior,
+            salario_anterior=salario_anterior,
         salario_nuevo=data.salario_nuevo,
         fecha_vigencia=data.fecha_vigencia,
         motivo=MotivoAjusteEnum(data.motivo),
