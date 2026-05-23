@@ -5,7 +5,7 @@ Schemas Pydantic para Ajuste Salarial, Decreto e Impuestos.
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional, List
-from pydantic import BaseModel, Field, field_validator, ConfigDict
+from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 
 
 # ============================================================
@@ -37,9 +37,26 @@ class AjusteSalarialCreate(BaseModel):
     salario_nuevo: Decimal = Field(..., gt=0, max_digits=10, decimal_places=2)
     fecha_vigencia: date = Field(..., description="Fecha desde la cual rige el nuevo salario")
     motivo: str = Field(..., pattern="^(decreto_anual|renovacion|ascenso|renegociacion)$")
-    id_aprobado_por: Optional[int] = Field(None, description="ID del empleado que aprobó")
+    id_aprobado_por: int = Field(..., gt=0, description="ID del empleado que aprobó el ajuste")
     observacion: Optional[str] = Field(None, max_length=5000)
     id_condicion_decreto: Optional[int] = Field(None, description="ID de la condición de decreto aplicada")
+
+    @field_validator("fecha_vigencia")
+    @classmethod
+    def validar_fecha_vigencia_no_futura(cls, v):
+        """Evitar registrar ajustes con una fecha de vigencia posterior a hoy."""
+        if v > date.today():
+            raise ValueError("fecha_vigencia no puede ser posterior a la fecha actual")
+        return v
+
+    @model_validator(mode="after")
+    def validar_coherencia_motivo_decreto(self):
+        """Validar que el tramo de decreto solo se use cuando el motivo es decreto anual."""
+        if self.motivo == "decreto_anual" and self.id_condicion_decreto is None:
+            raise ValueError("id_condicion_decreto es obligatorio cuando motivo='decreto_anual'")
+        if self.motivo != "decreto_anual" and self.id_condicion_decreto is not None:
+            raise ValueError("id_condicion_decreto solo puede enviarse cuando motivo='decreto_anual'")
+        return self
     
     model_config = ConfigDict(
         json_schema_extra={

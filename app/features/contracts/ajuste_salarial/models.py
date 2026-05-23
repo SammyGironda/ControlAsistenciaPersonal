@@ -243,6 +243,10 @@ class AjusteSalarial(Base):
             "salario_anterior > 0 AND salario_nuevo > 0",
             name="chk_ajuste_salarios_positivos"
         ),
+        CheckConstraint(
+            "(motivo = 'decreto_anual' AND id_condicion_decreto IS NOT NULL) OR (motivo <> 'decreto_anual' AND id_condicion_decreto IS NULL)",
+            name="chk_ajuste_salarial_decreto_coherente"
+        ),
     )
     
 

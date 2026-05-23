@@ -61,6 +61,32 @@ def create_ajuste_salarial(db: Session, data: AjusteSalarialCreate) -> AjusteSal
             detail=f"No existe un contrato indefinido activo para el empleado con ID {data.id_empleado}"
         )
 
+    if data.fecha_vigencia > date.today():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="fecha_vigencia no puede ser posterior a la fecha actual"
+        )
+
+    motivo = MotivoAjusteEnum(data.motivo)
+
+    if data.id_aprobado_por is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="id_aprobado_por es obligatorio para registrar un ajuste salarial"
+        )
+
+    if motivo == MotivoAjusteEnum.decreto_anual and data.id_condicion_decreto is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="id_condicion_decreto es obligatorio cuando el motivo es decreto_anual"
+        )
+
+    if motivo != MotivoAjusteEnum.decreto_anual and data.id_condicion_decreto is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="id_condicion_decreto solo puede enviarse cuando el motivo es decreto_anual"
+        )
+
     salario_anterior = empleado.salario_base
     if salario_anterior is None or salario_anterior <= 0:
         salario_anterior = contrato.salario_base
@@ -72,7 +98,7 @@ def create_ajuste_salarial(db: Session, data: AjusteSalarialCreate) -> AjusteSal
         )
     
     # Validar condición decreto si se proporciona
-    if data.id_condicion_decreto:
+    if data.id_condicion_decreto is not None:
         condicion = db.query(CondicionDecreto).filter(
             CondicionDecreto.id == data.id_condicion_decreto
         ).first()
@@ -82,35 +108,35 @@ def create_ajuste_salarial(db: Session, data: AjusteSalarialCreate) -> AjusteSal
                 detail=f"No existe la condición de decreto con ID {data.id_condicion_decreto}"
             )
 
-        if data.id_aprobado_por:
-            aprobador = db.query(Empleado).filter(Empleado.id == data.id_aprobado_por).first()
-            if not aprobador:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"No existe el empleado aprobador con ID {data.id_aprobado_por}"
-                )
-    
-    # Crear ajuste
+    aprobador = db.query(Empleado).filter(Empleado.id == data.id_aprobado_por).first()
+    if not aprobador:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No existe el empleado aprobador con ID {data.id_aprobado_por}"
+        )
+
+    # Crear ajuste solo cuando todas las validaciones ya pasaron.
     ajuste = AjusteSalarial(
         id_empleado=data.id_empleado,
-            id_contrato=contrato.id,
+        id_contrato=contrato.id,
         id_condicion_decreto=data.id_condicion_decreto,
-            salario_anterior=salario_anterior,
+        salario_anterior=salario_anterior,
         salario_nuevo=data.salario_nuevo,
         fecha_vigencia=data.fecha_vigencia,
-        motivo=MotivoAjusteEnum(data.motivo),
+        motivo=motivo,
         id_aprobado_por=data.id_aprobado_por,
-        observacion=data.observacion
+        observacion=data.observacion,
     )
-    
-    db.add(ajuste)
-    db.commit()
-    db.refresh(ajuste)
-    
-    # Nota: El trigger trg_sync_salario_empleado ya actualizó empleado.salario_base
-    # si fecha_vigencia <= CURRENT_DATE
-    
-    return ajuste
+
+    try:
+        db.add(ajuste)
+        db.flush()
+        db.commit()
+        db.refresh(ajuste)
+        return ajuste
+    except Exception:
+        db.rollback()
+        raise
 
 
 def get_ajustes_by_empleado(
@@ -129,7 +155,8 @@ def get_ultimo_ajuste_vigente(db: Session, empleado_id: int) -> Optional[AjusteS
     """
     Obtiene el último ajuste salarial vigente de un empleado.
     
-    Retorna el ajuste con fecha_vigencia <= hoy, ordenado por fecha_vigencia DESC.
+    Retorna el ajuste más reciente cuya fecha_vigencia sea menor o igual a hoy.
+    Si no existe uno aplicable todavía, retorna None.
     """
     return db.query(AjusteSalarial).filter(
         and_(
@@ -228,7 +255,7 @@ def calcular_porcentaje_incremento(
     try:
         result = db.execute(
             text("SELECT rrhh.fn_porcentaje_incremento_decreto(:decreto_id, :salario)"),
-            {"decreto_id": decreto_id, "salario": float(salario_actual)}
+            {"decreto_id": decreto_id, "salario": salario_actual}
         ).scalar()
         
         return Decimal(str(result))

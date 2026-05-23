@@ -78,7 +78,7 @@ def get_ajuste_vigente(
     empleado_id: int = Path(..., gt=0),
     db: Session = Depends(get_db)
 ):
-    """Obtiene el último ajuste vigente (fecha_vigencia <= hoy)."""
+    """Obtiene el ajuste vigente más reciente cuya fecha_vigencia ya sea aplicable."""
     return services.get_ultimo_ajuste_vigente(db, empleado_id)
 
 
