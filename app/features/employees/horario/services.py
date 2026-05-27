@@ -19,6 +19,8 @@ from app.features.employees.horario.schemas import (
     AsignacionHorarioResponse,
     AsignacionHorarioConDetalle
 )
+from app.features.employees.empleado.models import Empleado
+from app.features.contracts.contrato.models import Contrato, EstadoContratoEnum
 
 
 # ========== HORARIO SERVICES ==========
@@ -124,9 +126,9 @@ def create_asignacion_horario(db: Session, data: AsignacionHorarioCreate) -> Asi
     - El empleado debe existir y estar activo
     - El horario debe existir y estar activo
     - No puede haber solapamiento de fechas para el mismo empleado
+    - La fecha fin no debe exceder la fecha fin del contrato activo del empleado
     """
     # Validar empleado
-    from app.features.employees.empleado.models import Empleado
     empleado = db.query(Empleado).filter(Empleado.id == data.id_empleado).first()
     if not empleado:
         raise HTTPException(
@@ -151,9 +153,32 @@ def create_asignacion_horario(db: Session, data: AsignacionHorarioCreate) -> Asi
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No se puede asignar un horario inactivo"
         )
-    
+
+    # --- Lógica de validación de fecha fin con contrato (Punto 3) ---
+    # Obtener el contrato activo del empleado
+    contrato_activo = db.query(Contrato).filter(
+        Contrato.id_empleado == data.id_empleado,
+        Contrato.estado == EstadoContratoEnum.activo
+    ).order_by(Contrato.fecha_inicio.desc()).first() # Obtener el más reciente si hay múltiples activos (debería ser solo 1)
+
+    if not contrato_activo:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El empleado no tiene un contrato activo. No se puede asignar un horario."
+        )
+
+    if contrato_activo.fecha_fin:
+        # Si el contrato tiene fecha fin (plazo fijo)
+        if data.fecha_fin is None or data.fecha_fin > contrato_activo.fecha_fin:
+            # Si la asignación es indefinida o excede el contrato, ajustarla a la fecha fin del contrato
+            data.fecha_fin = contrato_activo.fecha_fin
+            print(f"DEBUG: Fecha fin de asignación ajustada a la fecha fin del contrato: {data.fecha_fin}")
+    elif data.fecha_fin is not None:
+        # Si el contrato es indefinido pero la asignación tiene fecha fin, se respeta la asignación
+        pass # No se hace nada, se mantiene la fecha fin proporcionada
+
     # Validar que no haya solapamiento de fechas
-    fecha_fin = data.fecha_fin if data.fecha_fin else date(9999, 12, 31)
+    fecha_fin_solapamiento = data.fecha_fin if data.fecha_fin else date(9999, 12, 31)
     
     solapamiento = db.query(AsignacionHorario).filter(
         AsignacionHorario.id_empleado == data.id_empleado,
@@ -169,10 +194,10 @@ def create_asignacion_horario(db: Session, data: AsignacionHorarioCreate) -> Asi
             ),
             # Caso 2: Nueva asignación termina durante otra existente
             and_(
-                AsignacionHorario.fecha_inicio <= fecha_fin,
+                AsignacionHorario.fecha_inicio <= fecha_fin_solapamiento,
                 or_(
                     AsignacionHorario.fecha_fin.is_(None),
-                    AsignacionHorario.fecha_fin >= fecha_fin
+                    AsignacionHorario.fecha_fin >= fecha_fin_solapamiento
                 )
             ),
             # Caso 3: Nueva asignación engloba completamente otra existente
@@ -180,7 +205,7 @@ def create_asignacion_horario(db: Session, data: AsignacionHorarioCreate) -> Asi
                 AsignacionHorario.fecha_inicio >= data.fecha_inicio,
                 or_(
                     AsignacionHorario.fecha_fin.is_(None),
-                    AsignacionHorario.fecha_fin <= fecha_fin
+                    AsignacionHorario.fecha_fin <= fecha_fin_solapamiento
                 )
             )
         )
@@ -237,7 +262,10 @@ def update_asignacion_horario(
     asignacion_id: int,
     data: AsignacionHorarioUpdate
 ) -> AsignacionHorario:
-    """Actualiza una asignación de horario existente."""
+    """
+    Actualiza una asignación de horario existente.
+    La fecha fin no debe exceder la fecha fin del contrato activo del empleado.
+    """
     asignacion = get_asignacion_by_id(db, asignacion_id)
     if not asignacion:
         raise HTTPException(
@@ -259,6 +287,43 @@ def update_asignacion_horario(
                 detail="No se puede asignar un horario inactivo"
             )
     
+    # --- Lógica de validación de fecha fin con contrato para actualizaciones (Punto 3) ---
+    # Se aplica solo si fecha_fin está presente en la actualización o si el id_empleado cambia
+    empleado_id_for_contract_check = data.id_empleado if data.id_empleado else asignacion.id_empleado
+
+    if data.fecha_fin is not None or data.id_empleado is not None:
+        empleado = db.query(Empleado).filter(Empleado.id == empleado_id_for_contract_check).first()
+        if not empleado:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No existe el empleado con id {empleado_id_for_contract_check}"
+            )
+        
+        contrato_activo = db.query(Contrato).filter(
+            Contrato.id_empleado == empleado.id,
+            Contrato.estado == EstadoContratoEnum.activo
+        ).order_by(Contrato.fecha_inicio.desc()).first()
+
+        if not contrato_activo:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El empleado no tiene un contrato activo. No se puede actualizar la asignación de horario."
+            )
+
+        current_fecha_fin = data.fecha_fin if data.fecha_fin is not None else asignacion.fecha_fin
+        
+        if contrato_activo.fecha_fin:
+            # Si el contrato tiene fecha fin (plazo fijo)
+            if current_fecha_fin is None or current_fecha_fin > contrato_activo.fecha_fin:
+                data.fecha_fin = contrato_activo.fecha_fin
+                print(f"DEBUG: Fecha fin de asignación actualizada ajustada a la fecha fin del contrato: {data.fecha_fin}")
+        elif data.fecha_fin is not None and data.fecha_fin < asignacion.fecha_inicio:
+            # Si el contrato es indefinido, pero se intenta acortar la fecha_fin a antes de fecha_inicio
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="La fecha fin de la asignación no puede ser anterior a la fecha de inicio."
+            )
+
     # Aplicar cambios
     update_data = data.model_dump(exclude_unset=True)
     for field, value in update_data.items():

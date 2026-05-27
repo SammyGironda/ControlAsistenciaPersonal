@@ -48,19 +48,23 @@ class Horario(Base):
         nullable=False,
         comment="Ej: 'Turno Oficina', 'Turno Noche'"
     )
-    hora_entrada: Mapped[time] = mapped_column(Time, nullable=False)
-    hora_salida: Mapped[time] = mapped_column(Time, nullable=False)
+    hora_entrada: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
+    hora_salida: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
+    horas_trabajadas: Mapped[Optional[float]] = mapped_column(
+        Numeric(4, 2),
+        nullable=True,
+        comment="Horas trabajadas calculadas automáticamente (NULL para jornada discontinua)"
+    )
     tolerancia_minutos: Mapped[int] = mapped_column(
         Integer,
         default=5,
         nullable=False,
         comment="Minutos de gracia para considerar retraso"
     )
-    jornada_semanal_horas: Mapped[float] = mapped_column(
-        Numeric(4, 1),
-        default=40.0,
-        nullable=False,
-        comment="Total horas semanales (máx 48 según LGT Art. 46)"
+    jornada_semanal_horas: Mapped[Optional[float]] = mapped_column(
+        Numeric(4, 2),
+        nullable=True,
+        comment="Total horas semanales (máx 48 según LGT Art. 46) - calculado automáticamente"
     )
     dias_laborables: Mapped[dict] = mapped_column(
         JSON,
