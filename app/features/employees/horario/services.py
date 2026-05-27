@@ -1,6 +1,7 @@
 """
 Services (lógica de negocio) para Horario y AsignacionHorario.
 Operaciones CRUD + validación de solapamientos y horario vigente.
+Todas las operaciones usan UTC internamente, la zona horaria de La Paz es UTC-4.
 """
 
 from typing import List, Optional
@@ -21,6 +22,7 @@ from app.features.employees.horario.schemas import (
 )
 from app.features.employees.empleado.models import Empleado
 from app.features.contracts.contrato.models import Contrato, EstadoContratoEnum
+from app.core.timezone import get_utc_now, get_lapaz_now, utc_to_lapaz
 
 
 # ========== HELPER FUNCTIONS ==========
@@ -428,18 +430,19 @@ def get_horario_actual_empleado(
 ) -> Optional[AsignacionHorarioConDetalle]:
     """
     Obtiene el horario vigente de un empleado en una fecha específica.
-    
+    Usa zona horaria de La Paz (UTC-4).
+
     Args:
         id_empleado: ID del empleado
-        fecha: Fecha de consulta (default: hoy)
-    
+        fecha: Fecha de consulta en La Paz (default: hoy en La Paz)
+
     Returns:
         AsignacionHorarioConDetalle con los detalles del horario,
         o None si no hay horario asignado para esa fecha.
     """
     if fecha is None:
-        fecha = datetime.now().date()
-    
+        fecha = get_lapaz_now().date()
+
     # Validar empleado
     from app.features.employees.empleado.models import Empleado
     empleado = db.query(Empleado).filter(Empleado.id == id_empleado).first()
@@ -448,7 +451,7 @@ def get_horario_actual_empleado(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No existe el empleado con id {id_empleado}"
         )
-    
+
     # Buscar asignación vigente
     asignacion = db.query(AsignacionHorario).options(
         joinedload(AsignacionHorario.horario)
@@ -461,8 +464,8 @@ def get_horario_actual_empleado(
             AsignacionHorario.fecha_fin >= fecha
         )
     ).first()
-    
+
     if not asignacion:
         return None
-    
+
     return AsignacionHorarioConDetalle.model_validate(asignacion)

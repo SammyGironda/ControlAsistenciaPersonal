@@ -1,15 +1,17 @@
 """
 Modelos Horario y AsignacionHorario.
 Define turnos laborales y su asignación temporal a empleados.
+Todas las fechas/horas se almacenan en UTC en la base de datos.
 """
 
-from datetime import datetime, time, date
+from datetime import datetime, time, date, timezone
 from typing import Optional, TYPE_CHECKING, List
 from sqlalchemy import String, Boolean, Integer, ForeignKey, Numeric, Time, Date, Enum as SQLEnum, JSON, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 import enum
 
 from app.db.base import Base
+from app.core.timezone import get_utc_now
 
 if TYPE_CHECKING:
     from app.features.employees.empleado.models import Empleado
@@ -50,11 +52,6 @@ class Horario(Base):
     )
     hora_entrada: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
     hora_salida: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
-    horas_trabajadas: Mapped[Optional[float]] = mapped_column(
-        Numeric(4, 2),
-        nullable=True,
-        comment="Horas trabajadas calculadas automáticamente (NULL para jornada discontinua)"
-    )
     tolerancia_minutos: Mapped[int] = mapped_column(
         Integer,
         default=5,
@@ -78,9 +75,9 @@ class Horario(Base):
         nullable=False
     )
     activo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(default=datetime.now, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(default=get_utc_now, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
-        default=datetime.now, onupdate=datetime.now, nullable=False
+        default=get_utc_now, onupdate=get_utc_now, nullable=False
     )
 
     # --- Relaciones ---
@@ -129,9 +126,9 @@ class AsignacionHorario(Base):
         comment="Solo una asignación activa por empleado en una fecha"
     )
     observacion: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(default=datetime.now, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(default=get_utc_now, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
-        default=datetime.now, onupdate=datetime.now, nullable=False
+        default=get_utc_now, onupdate=get_utc_now, nullable=False
     )
 
     # --- Relaciones ---

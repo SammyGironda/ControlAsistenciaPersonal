@@ -1,11 +1,17 @@
 """
 Schemas Pydantic para Horario y AsignacionHorario.
 Validación de entrada/salida de datos con reglas de negocio.
+Zona horaria: Todas las horas se almacenan en UTC en la base de datos.
+La Paz, Bolivia: UTC-4 (sin horario de verano)
+Las timestamps se devuelven en UTC y opcionalmente pueden convertirse a La Paz.
 """
 
-from datetime import datetime, time, date, timedelta
+from datetime import datetime, time, date, timedelta, timezone
 from typing import Optional, List, Literal
-from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
+from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict, computed_field, field_serializer
+
+# Zona horaria de La Paz (UTC-4)
+LA_PAZ_TIMEZONE = timezone(timedelta(hours=-4))
 
 
 # ========== Horario Schemas ==========
@@ -13,40 +19,48 @@ from pydantic import BaseModel, Field, field_validator, model_validator, ConfigD
 class HorarioBase(BaseModel):
     """Schema base para Horario."""
     nombre: str = Field(..., min_length=3, max_length=100, description="Ej: 'Turno Oficina'")
-    hora_entrada: Optional[time] = None
-    hora_salida: Optional[time] = None
+    hora_entrada: Optional[time] = Field(None, description="Formato: HH:MM (ej: 09:30)")
+    hora_salida: Optional[time] = Field(None, description="Formato: HH:MM (ej: 17:30)")
     tolerancia_minutos: int = Field(default=5, ge=0, le=60, description="Minutos de gracia")
     dias_laborables: List[int] = Field(default=[1, 2, 3, 4, 5], description="[1=Lun, 2=Mar, ..., 7=Dom]")
     tipo_jornada: Literal["continua", "discontinua"] = Field(default="continua", description="continua | discontinua")
     activo: bool = True
-    horas_trabajadas: Optional[float] = Field(None, description="Horas trabajadas calculadas automáticamente por día (NULL para jornada discontinua)")
     jornada_semanal_horas: Optional[float] = Field(None, description="Total horas semanales (máx 48 según LGT Art. 46) - calculado automáticamente")
+
+    @field_validator('hora_entrada', 'hora_salida', mode='before')
+    @classmethod
+    def parse_time_simple(cls, v):
+        """Acepta formato HH:MM y lo convierte a time. Rellena segundos con :00."""
+        if v is None:
+            return None
+        if isinstance(v, time):
+            return v
+        if isinstance(v, str):
+            v = v.strip()
+            if ':' not in v:
+                raise ValueError('Formato debe ser HH:MM (ej: 09:30)')
+            partes = v.split(':')
+            if len(partes) == 2:
+                try:
+                    horas = int(partes[0])
+                    minutos = int(partes[1])
+                    return time(hour=horas, minute=minutos, second=0)
+                except (ValueError, TypeError):
+                    raise ValueError('Formato debe ser HH:MM con números válidos (ej: 09:30)')
+            else:
+                raise ValueError('Formato debe ser HH:MM (ej: 09:30)')
+        raise ValueError('Formato debe ser HH:MM (ej: 09:30)')
 
     @model_validator(mode='after')
     def validate_horario_fields(self) -> 'HorarioBase':
         if self.tipo_jornada == "discontinua":
             if self.hora_entrada is not None or self.hora_salida is not None:
                 raise ValueError('Para jornada discontinua, hora_entrada y hora_salida no deben ser especificadas')
-            self.horas_trabajadas = None
-            self.jornada_semanal_horas = None
         elif self.tipo_jornada == "continua":
             if self.hora_entrada is None or self.hora_salida is None:
                 raise ValueError('Para jornada continua, hora_entrada y hora_salida son requeridas')
             if self.hora_salida <= self.hora_entrada:
                 raise ValueError('La hora de salida debe ser posterior a la hora de entrada para jornada continua')
-            
-            # Calculate daily worked hours
-            dummy_date = date(2000, 1, 1)
-            dt_entrada = datetime.combine(dummy_date, self.hora_entrada)
-            dt_salida = datetime.combine(dummy_date, self.hora_salida)
-            
-            time_diff = dt_salida - dt_entrada
-            self.horas_trabajadas = round(time_diff.total_seconds() / 3600, 2)
-            
-            # Calculate weekly worked hours
-            self.jornada_semanal_horas = round(self.horas_trabajadas * len(self.dias_laborables), 2)
-            if self.jornada_semanal_horas > 48.0:
-                raise ValueError('La jornada semanal no puede exceder las 48 horas según la LGT Art. 46')
         return self
 
     @field_validator('dias_laborables')
@@ -89,52 +103,18 @@ class HorarioUpdate(BaseModel):
     dias_laborables: Optional[List[int]] = None
     tipo_jornada: Optional[Literal["continua", "discontinua"]] = None
     activo: Optional[bool] = None
-    horas_trabajadas: Optional[float] = Field(None, description="Horas trabajadas calculadas automáticamente por día (NULL para jornada discontinua)")
     jornada_semanal_horas: Optional[float] = Field(None, description="Total horas semanales (máx 48 según LGT Art. 46) - calculado automáticamente")
 
     @model_validator(mode='after')
     def validate_horario_fields_update(self) -> 'HorarioUpdate':
-        # Retrieve current values for validation if not provided in update data
-        # This part requires fetching the existing object from DB, which happens in the service layer.
-        # Here, we only validate the fields provided in the update, but ensure consistency.
-        
-        # If tipo_jornada is being updated, or if hora_entrada/salida are being updated for a continua jornada
-        # we need to re-evaluate the horas_trabajadas and jornada_semanal_horas
-        # However, for Pydantic, the model_validator only sees the data provided for the current update.
-        # The full validation of consistency with existing data will occur in the service layer.
-        
         if self.tipo_jornada == "discontinua":
             if self.hora_entrada is not None or self.hora_salida is not None:
                 raise ValueError('Para jornada discontinua, hora_entrada y hora_salida no deben ser especificadas')
-            self.horas_trabajadas = None
-            self.jornada_semanal_horas = None
         elif self.tipo_jornada == "continua":
-            # If both hora_entrada and hora_salida are provided, recalculate
             if self.hora_entrada is not None and self.hora_salida is not None:
                 if self.hora_salida <= self.hora_entrada:
                     raise ValueError('La hora de salida debe ser posterior a la hora de entrada para jornada continua')
-                
-                dummy_date = date(2000, 1, 1)
-                dt_entrada = datetime.combine(dummy_date, self.hora_entrada)
-                dt_salida = datetime.combine(dummy_date, self.hora_salida)
-                
-                time_diff = dt_salida - dt_entrada
-                self.horas_trabajadas = round(time_diff.total_seconds() / 3600, 2)
-                
-                # If dias_laborables is also provided, calculate jornada_semanal_horas
-                if self.dias_laborables is not None:
-                    self.jornada_semanal_horas = round(self.horas_trabajadas * len(self.dias_laborables), 2)
-                    if self.jornada_semanal_horas > 48.0:
-                        raise ValueError('La jornada semanal no puede exceder las 48 horas según la LGT Art. 46')
-                else:
-                    # If dias_laborables is not provided in the update, cannot calculate jornada_semanal_horas yet
-                    self.jornada_semanal_horas = None
-            else:
-                # If one of hora_entrada/salida is missing, cannot calculate horas_trabajadas/jornada_semanal_horas fully
-                self.horas_trabajadas = None
-                self.jornada_semanal_horas = None
-        
-        # Validate dias_laborables if provided
+
         if self.dias_laborables is not None:
             if not self.dias_laborables:
                 raise ValueError('Debe especificar al menos un día laborable')
@@ -149,13 +129,49 @@ class HorarioUpdate(BaseModel):
 
 
 class HorarioResponse(HorarioBase):
-    """Schema de respuesta para Horario."""
+    """Schema de respuesta para Horario. Timestamps en UTC."""
     id: int
     jornada_semanal_horas: float
     created_at: datetime
     updated_at: datetime
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_encoders={
+            datetime: lambda v: v.isoformat() if v else None
+        }
+    )
+
+    @field_serializer('hora_entrada', 'hora_salida', when_used='json')
+    def serialize_time_simple(self, value: Optional[time]) -> Optional[str]:
+        """Serializa time como 'HH:MM' en JSON."""
+        if value is None:
+            return None
+        return value.strftime("%H:%M")
+
+    @computed_field
+    @property
+    def created_at_lapaz(self) -> Optional[datetime]:
+        """Timestamp created_at convertido a La Paz (UTC-4)."""
+        if self.created_at is None:
+            return None
+        if self.created_at.tzinfo is None:
+            dt = self.created_at.replace(tzinfo=timezone.utc)
+        else:
+            dt = self.created_at
+        return dt.astimezone(LA_PAZ_TIMEZONE)
+
+    @computed_field
+    @property
+    def updated_at_lapaz(self) -> Optional[datetime]:
+        """Timestamp updated_at convertido a La Paz (UTC-4)."""
+        if self.updated_at is None:
+            return None
+        if self.updated_at.tzinfo is None:
+            dt = self.updated_at.replace(tzinfo=timezone.utc)
+        else:
+            dt = self.updated_at
+        return dt.astimezone(LA_PAZ_TIMEZONE)
 
 
 class HorarioCreateResponse(HorarioResponse):
@@ -205,16 +221,50 @@ class AsignacionHorarioUpdate(BaseModel):
 
 
 class AsignacionHorarioResponse(AsignacionHorarioBase):
-    """Schema de respuesta para AsignacionHorario."""
+    """Schema de respuesta para AsignacionHorario. Timestamps en UTC."""
     id: int
     created_at: datetime
     updated_at: datetime
-    
-    model_config = ConfigDict(from_attributes=True)
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_encoders={
+            datetime: lambda v: v.isoformat() if v else None
+        }
+    )
+
+    @computed_field
+    @property
+    def created_at_lapaz(self) -> Optional[datetime]:
+        """Timestamp created_at convertido a La Paz (UTC-4)."""
+        if self.created_at is None:
+            return None
+        if self.created_at.tzinfo is None:
+            dt = self.created_at.replace(tzinfo=timezone.utc)
+        else:
+            dt = self.created_at
+        return dt.astimezone(LA_PAZ_TIMEZONE)
+
+    @computed_field
+    @property
+    def updated_at_lapaz(self) -> Optional[datetime]:
+        """Timestamp updated_at convertido a La Paz (UTC-4)."""
+        if self.updated_at is None:
+            return None
+        if self.updated_at.tzinfo is None:
+            dt = self.updated_at.replace(tzinfo=timezone.utc)
+        else:
+            dt = self.updated_at
+        return dt.astimezone(LA_PAZ_TIMEZONE)
 
 
 class AsignacionHorarioConDetalle(AsignacionHorarioResponse):
     """Schema de asignación con detalles del horario incluidos."""
     horario: HorarioResponse
     
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_encoders={
+            datetime: lambda v: v.isoformat() if v else None
+        }
+    )
