@@ -13,6 +13,8 @@ from app.features.employees.horario.schemas import (
     HorarioCreate,
     HorarioUpdate,
     HorarioResponse,
+    HorarioCreateResponse,
+    HorarioUpdateResponse,
     AsignacionHorarioCreate,
     AsignacionHorarioUpdate,
     AsignacionHorarioResponse
@@ -28,23 +30,24 @@ router = APIRouter(
 
 @router.post(
     "/",
-    response_model=HorarioResponse,
+    response_model=HorarioCreateResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Crear horario",
-    description="Crea un nuevo turno laboral"
+    description="Crea un nuevo turno laboral con horas semanales calculadas automáticamente"
 )
 def create_horario(
     data: HorarioCreate,
     db: Session = Depends(get_db)
 ):
     """
-    Crea un nuevo horario.
-    
+    Crea un nuevo horario. Las horas semanales se calculan automáticamente multiplicando:
+    - Horas por día = hora_salida - hora_entrada
+    - Total = horas_por_día × cantidad_de_días_laborables
+
     - **nombre**: Nombre descriptivo del horario
     - **hora_entrada**: Hora de entrada
     - **hora_salida**: Hora de salida
     - **tolerancia_minutos**: Minutos de gracia para retrasos
-    - **jornada_semanal_horas**: Total de horas semanales (máx 48h según LGT)
     - **dias_laborables**: Array de días [1=Lun, 2=Mar, ..., 7=Dom]
     - **tipo_jornada**: continua | discontinua
     """
@@ -89,9 +92,9 @@ def get_horario(
 
 @router.put(
     "/{horario_id:int}",
-    response_model=HorarioResponse,
+    response_model=HorarioUpdateResponse,
     summary="Actualizar horario",
-    description="Actualiza los datos de un horario existente"
+    description="Actualiza los datos de un horario. Las horas semanales se recalculan automáticamente si cambian hora_entrada, hora_salida o dias_laborables"
 )
 def update_horario(
     horario_id: int,

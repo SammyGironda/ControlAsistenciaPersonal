@@ -76,12 +76,12 @@ class HorarioBase(BaseModel):
 
 
 class HorarioCreate(HorarioBase):
-    """Schema para crear un horario."""
+    """Schema para crear un horario. Las horas semanales se calculan automáticamente."""
     pass
 
 
 class HorarioUpdate(BaseModel):
-    """Schema para actualizar un horario."""
+    """Schema para actualizar un horario. Las horas semanales se recalculan automáticamente si cambian horas o días."""
     nombre: Optional[str] = Field(None, min_length=3, max_length=100)
     hora_entrada: Optional[time] = None
     hora_salida: Optional[time] = None
@@ -151,10 +151,21 @@ class HorarioUpdate(BaseModel):
 class HorarioResponse(HorarioBase):
     """Schema de respuesta para Horario."""
     id: int
+    jornada_semanal_horas: float
     created_at: datetime
     updated_at: datetime
-    
+
     model_config = ConfigDict(from_attributes=True)
+
+
+class HorarioCreateResponse(HorarioResponse):
+    """Schema de respuesta específica para POST (crear horario)."""
+    pass
+
+
+class HorarioUpdateResponse(HorarioResponse):
+    """Schema de respuesta específica para PUT (actualizar horario)."""
+    pass
 
 
 # ========== AsignacionHorario Schemas ==========

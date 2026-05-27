@@ -4,7 +4,7 @@ Operaciones CRUD + validación de solapamientos y horario vigente.
 """
 
 from typing import List, Optional
-from datetime import date, datetime
+from datetime import date, datetime, time
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_, or_
 from fastapi import HTTPException, status
@@ -23,11 +23,60 @@ from app.features.employees.empleado.models import Empleado
 from app.features.contracts.contrato.models import Contrato, EstadoContratoEnum
 
 
+# ========== HELPER FUNCTIONS ==========
+
+def calcular_horas_semanales(hora_entrada: time, hora_salida: time, dias_laborables: List[int]) -> float:
+    """
+    Calcula automáticamente las horas semanales.
+
+    Args:
+        hora_entrada: Hora de entrada
+        hora_salida: Hora de salida
+        dias_laborables: Lista de días laborables [1-7]
+
+    Returns:
+        Total de horas semanales (horas_por_día * cantidad_días)
+    """
+    # Convertir times a datetime para calcular diferencia
+    fecha_ref = datetime(2000, 1, 1)
+    dt_entrada = datetime.combine(fecha_ref.date(), hora_entrada)
+    dt_salida = datetime.combine(fecha_ref.date(), hora_salida)
+
+    # Calcular horas por día
+    horas_por_dia = (dt_salida - dt_entrada).total_seconds() / 3600
+
+    # Calcular cantidad de días laborables
+    cantidad_dias = len(dias_laborables)
+
+    # Calcular total de horas semanales
+    horas_semanales = horas_por_dia * cantidad_dias
+
+    return round(horas_semanales, 1)
+
+
 # ========== HORARIO SERVICES ==========
 
 def create_horario(db: Session, data: HorarioCreate) -> Horario:
-    """Crea un nuevo horario."""
-    horario = Horario(**data.model_dump())
+    """Crea un nuevo horario calculando automáticamente las horas semanales."""
+    # Calcular horas semanales automáticamente
+    horas_semanales = calcular_horas_semanales(
+        data.hora_entrada,
+        data.hora_salida,
+        data.dias_laborables
+    )
+
+    # Validar que no excedan el máximo permitido
+    if horas_semanales > 48.0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Las horas semanales calculadas ({horas_semanales}h) exceden el máximo permitido de 48h según LGT Art. 46"
+        )
+
+    # Crear horario con horas calculadas
+    horario_data = data.model_dump()
+    horario_data['jornada_semanal_horas'] = horas_semanales
+
+    horario = Horario(**horario_data)
     db.add(horario)
     db.commit()
     db.refresh(horario)
@@ -66,19 +115,43 @@ def update_horario(
     horario_id: int,
     data: HorarioUpdate
 ) -> Horario:
-    """Actualiza un horario existente."""
+    """Actualiza un horario. Recalcula horas semanales si cambian hora_entrada, hora_salida o dias_laborables."""
     horario = get_horario_by_id(db, horario_id)
     if not horario:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No existe el horario con id {horario_id}"
         )
-    
+
     # Aplicar cambios
     update_data = data.model_dump(exclude_unset=True)
+
+    # Determinar si necesita recalcular horas
+    necesita_recalculo = any(
+        campo in update_data for campo in ['hora_entrada', 'hora_salida', 'dias_laborables']
+    )
+
+    if necesita_recalculo:
+        # Usar valores actuales o nuevos
+        hora_entrada = update_data.get('hora_entrada', horario.hora_entrada)
+        hora_salida = update_data.get('hora_salida', horario.hora_salida)
+        dias_laborables = update_data.get('dias_laborables', horario.dias_laborables)
+
+        # Recalcular horas semanales
+        horas_semanales = calcular_horas_semanales(hora_entrada, hora_salida, dias_laborables)
+
+        if horas_semanales > 48.0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Las horas semanales calculadas ({horas_semanales}h) exceden el máximo permitido de 48h según LGT Art. 46"
+            )
+
+        update_data['jornada_semanal_horas'] = horas_semanales
+
+    # Aplicar todos los cambios
     for field, value in update_data.items():
         setattr(horario, field, value)
-    
+
     db.commit()
     db.refresh(horario)
     return horario
