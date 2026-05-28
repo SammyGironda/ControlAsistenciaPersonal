@@ -88,25 +88,38 @@ def listar_feriados(
 
 
 @router.get(
-    "/aplicables/{fecha}/{codigo_departamento}",
+    "/aplicables/{dia}/{mes}/{codigo_departamento}",
     response_model=List[DiaFestivoResponse],
-    summary="Obtener feriados aplicables a fecha y departamento"
+    summary="Obtener feriados aplicables a mes/día y departamento"
 )
 def obtener_feriados_aplicables(
-    fecha: date,
+    dia: int,
+    mes: int,
     codigo_departamento: str,
     db: Session = Depends(get_db)
 ):
     """
-    Obtiene feriados que aplican a una fecha y departamento específico.
+    Obtiene feriados que aplican a un mes/día específico (recurrente anualmente).
+
+    **Formato:**
+    - `dia`: día del mes (1-31)
+    - `mes`: mes del año (1-12)
+    - `codigo_departamento`: LP, CB, SC, OR, PT, TJ, CH, BE, PD
+
+    **Ejemplo:**
+    - `/api/v1/feriados/aplicables/28/05/LP` → Feriados del 28 de mayo en La Paz
+    - `/api/v1/feriados/aplicables/01/01/LP` → Feriados del 1 de enero en La Paz
 
     Retorna:
-    - Feriados NACIONALES en esa fecha
-    - Feriados DEPARTAMENTALES del departamento indicado en esa fecha
+    - Feriados NACIONALES en ese mes/día
+    - Feriados DEPARTAMENTALES del departamento indicado en ese mes/día
+
+    **Nota:** Los feriados se buscan por mes y día, no por año específico.
+    Se supone que los feriados se repiten anualmente.
 
     Este endpoint es usado por el worker de asistencia_diaria.
     """
-    return services.obtener_feriados_aplicables(db, fecha, codigo_departamento)
+    return services.obtener_feriados_aplicables(db, dia, mes, codigo_departamento)
 
 
 @router.put(

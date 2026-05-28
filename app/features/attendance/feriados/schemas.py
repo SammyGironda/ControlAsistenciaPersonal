@@ -17,10 +17,10 @@ class AmbitoFestivoEnum(str, Enum):
 
 class DiaFestivoBase(BaseModel):
     """Schema base con campos comunes."""
-    fecha: date = Field(..., description="Fecha del feriado")
+    fecha: date = Field(..., description="Fecha del feriado (formato: YYYY-MM-DD). Ejemplo: 2025-05-28. Los feriados se identifican por mes y día, se repiten anualmente.")
     descripcion: str = Field(..., min_length=3, max_length=150, description="Descripción del feriado")
     ambito: AmbitoFestivoEnum = Field(..., description="NACIONAL o DEPARTAMENTAL")
-    codigo_departamento: Optional[str] = Field(None, min_length=2, max_length=2, description="Código de departamento (solo para DEPARTAMENTAL)")
+    codigo_departamento: Optional[str] = Field(None, min_length=2, max_length=2, description="Código de departamento (solo para DEPARTAMENTAL): LP, CB, SC, OR, PT, TJ, CH, BE, PD")
     activo: bool = Field(True, description="Estado del feriado")
 
     @field_validator('codigo_departamento')

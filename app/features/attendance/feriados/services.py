@@ -97,17 +97,44 @@ def listar_dias_festivos(
 
 def obtener_feriados_aplicables(
     db: Session,
-    fecha: date,
+    dia: int,
+    mes: int,
     codigo_departamento: str
 ) -> List[DiaFestivo]:
     """
-    Obtiene feriados aplicables a una fecha y departamento específico.
+    Obtiene feriados aplicables a un mes/día específico (búsqueda recurrente anual).
 
-    Retorna feriados NACIONALES o DEPARTAMENTALES que aplican al departamento dado.
-    Esta función es usada por el worker de asistencia_diaria.
+    Valida que el mes esté entre 1-12.
+    Busca feriados sin importar el año, solo mes y día.
+
+    Args:
+        dia: día del mes (1-31)
+        mes: mes del año (1-12)
+        codigo_departamento: código de departamento
+
+    Returns:
+        Lista de feriados aplicables (NACIONALES o DEPARTAMENTALES del código dado)
+
+    Raises:
+        HTTPException 400 si mes > 12 o < 1
     """
+    # Validar que el mes esté entre 1 y 12
+    if mes < 1 or mes > 12:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Mes inválido: {mes}. Debe estar entre 1 y 12"
+        )
+
+    # Validar que el día esté entre 1 y 31
+    if dia < 1 or dia > 31:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Día inválido: {dia}. Debe estar entre 1 y 31"
+        )
+
     return db.query(DiaFestivo).filter(
-        DiaFestivo.fecha == fecha,
+        extract("month", DiaFestivo.fecha) == mes,
+        extract("day", DiaFestivo.fecha) == dia,
         DiaFestivo.activo.is_(True),
         or_(
             DiaFestivo.ambito == AmbitoFestivoEnum.NACIONAL,
