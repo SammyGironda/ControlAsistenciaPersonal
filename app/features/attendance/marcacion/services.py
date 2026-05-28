@@ -22,6 +22,7 @@ from app.features.attendance.marcacion.schemas import (
     IncidenciaMarcacionCreate, IncidenciaMarcacionUpdate
 )
 from app.features.employees.empleado.models import Empleado
+from app.features.auth.usuario.models import Usuario
 
 
 # ============================================================
@@ -122,19 +123,29 @@ def get_archivo_by_id(db: Session, archivo_id: int) -> Optional[ArchivoExcel]:
 
 def update_archivo(db: Session, archivo_id: int, data: ArchivoExcelUpdate) -> ArchivoExcel:
     """Actualiza el estado de procesamiento de un archivo."""
-    archivo = get_archivo_by_id(db, archivo_id)
-    if not archivo:
+    try:
+        archivo = get_archivo_by_id(db, archivo_id)
+        if not archivo:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No existe el archivo con ID {archivo_id}"
+            )
+
+        for key, value in data.model_dump(exclude_unset=True).items():
+            setattr(archivo, key, value)
+
+        db.commit()
+        db.refresh(archivo)
+        return archivo
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No existe el archivo con ID {archivo_id}"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al actualizar archivo: {str(e)}"
         )
-
-    for key, value in data.model_dump(exclude_unset=True).items():
-        setattr(archivo, key, value)
-
-    db.commit()
-    db.refresh(archivo)
-    return archivo
 
 
 def get_all_archivos(db: Session, skip: int = 0, limit: int = 100) -> List[ArchivoExcel]:
@@ -198,6 +209,15 @@ def procesar_archivo_excel(
     - estadísticas de procesamiento
     - log de errores
     """
+    # Validar que id_subido_por existe
+    if id_subido_por:
+        usuario = db.query(Usuario).filter(Usuario.id == id_subido_por).first()
+        if not usuario:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Usuario con ID {id_subido_por} no existe"
+            )
+
     # Guardar archivo físicamente
     Path(upload_dir).mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -208,18 +228,45 @@ def procesar_archivo_excel(
         f.write(file.file.read())
 
     # Crear registro en BD
-    archivo = create_archivo_excel(db, ArchivoExcelCreate(
-        nombre_archivo=file.filename,
-        ruta_storage=str(filepath),
-        id_subido_por=id_subido_por
-    ))
+    try:
+        archivo = create_archivo_excel(db, ArchivoExcelCreate(
+            nombre_archivo=file.filename,
+            ruta_storage=str(filepath),
+            id_subido_por=id_subido_por
+        ))
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al crear registro de archivo: {str(e)}"
+        )
 
     # Actualizar estado a procesando
-    update_archivo(db, archivo.id, ArchivoExcelUpdate(estado_procesamiento="procesando"))
+    try:
+        update_archivo(db, archivo.id, ArchivoExcelUpdate(estado_procesamiento="procesando"))
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al actualizar estado: {str(e)}"
+        )
 
     try:
-        # Leer Excel con Pandas
-        df = pd.read_excel(filepath, engine='openpyxl')
+        # Leer hojas disponibles en el Excel
+        excel_file = pd.ExcelFile(filepath, engine='openpyxl')
+        sheet_names = excel_file.sheet_names
+
+        if not sheet_names:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El archivo Excel no contiene hojas"
+            )
+
+        # Usar la primera hoja
+        df = excel_file.parse(sheet_names[0])
+
+        extra_info = f" (hoja '{sheet_names[0]}')" if len(sheet_names) > 1 else ""
 
         total_filas = len(df)
         filas_procesadas = 0
@@ -229,23 +276,33 @@ def procesar_archivo_excel(
         # Procesar cada fila
         for idx, row in df.iterrows():
             try:
-                # Extraer datos
-                ci_completo = str(row.iloc[0]).strip()  # Primera columna: CI
-                fecha_str = str(row.iloc[1]).strip()     # Segunda columna: Fecha
-                hora_entrada = str(row.iloc[2]).strip() if pd.notna(row.iloc[2]) else None
-                hora_salida = str(row.iloc[3]).strip() if pd.notna(row.iloc[3]) else None
+                # Estructura del Excel: ID | NOMBRE | DEPARTAMENTO | FECHA | ENTRADA | SALIDA | ...
+                empleado_id = str(row.iloc[0]).strip()      # Columna 0: ID
+                fecha_str = str(row.iloc[3]).strip()         # Columna 3: FECHA
+                hora_entrada = str(row.iloc[4]).strip() if pd.notna(row.iloc[4]) else None  # Columna 4
+                hora_salida = str(row.iloc[5]).strip() if pd.notna(row.iloc[5]) else None    # Columna 5
 
-                # Buscar empleado por CI
-                empleado = db.query(Empleado).filter(
-                    func.concat(
-                        Empleado.ci_numero, '-', Empleado.complemento_dep
-                    ) == ci_completo
-                ).first()
+                # Saltar si no hay datos
+                if not fecha_str or (fecha_str.lower() == 'nan'):
+                    continue
+
+                # Buscar empleado por ID
+                try:
+                    emp_id = int(float(empleado_id))
+                except (ValueError, TypeError):
+                    errores.append({
+                        "fila": idx + 2,
+                        "error": f"ID de empleado inválido: {empleado_id}"
+                    })
+                    filas_con_error += 1
+                    continue
+
+                empleado = db.query(Empleado).filter(Empleado.id == emp_id).first()
 
                 if not empleado:
                     errores.append({
-                        "fila": idx + 2,  # +2 porque Excel empieza en 1 y tiene header
-                        "error": f"CI {ci_completo} no encontrado"
+                        "fila": idx + 2,
+                        "error": f"Empleado con ID {emp_id} no encontrado"
                     })
                     filas_con_error += 1
                     continue
@@ -315,11 +372,19 @@ def procesar_archivo_excel(
                 filas_con_error += 1
 
         # Commit de todas las marcaciones
-        db.commit()
+        try:
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error al guardar marcaciones: {str(e)}"
+            )
 
-        # Actualizar archivo a completado
+        # Actualizar archivo: completado si no hay errores, error si los hay
+        estado_final = "completado" if filas_con_error == 0 else "error"
         update_archivo(db, archivo.id, ArchivoExcelUpdate(
-            estado_procesamiento="completado" if filas_con_error == 0 else "error",
+            estado_procesamiento=estado_final,
             total_filas=total_filas,
             filas_procesadas=filas_procesadas,
             filas_con_error=filas_con_error,
@@ -330,15 +395,18 @@ def procesar_archivo_excel(
             "archivo_id": archivo.id,
             "nombre_archivo": file.filename,
             "estado": "completado" if filas_con_error == 0 else "completado_con_errores",
-            "mensaje": f"Procesado: {filas_procesadas}/{total_filas} filas",
+            "mensaje": f"Procesado: {filas_procesadas}/{total_filas} filas{extra_info}",
             "total_filas": total_filas,
             "filas_procesadas": filas_procesadas,
             "filas_con_error": filas_con_error,
             "errores": errores if errores else None
         }
 
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
-        # Error catastrófico
+        db.rollback()
         update_archivo(db, archivo.id, ArchivoExcelUpdate(
             estado_procesamiento="error",
             log_errores=json.dumps({"error_general": str(e)}, ensure_ascii=False)
