@@ -363,10 +363,10 @@ def update_asignacion_horario(
             )
     
     # --- Lógica de validación de fecha fin con contrato para actualizaciones (Punto 3) ---
-    # Se aplica solo si fecha_fin está presente en la actualización o si el id_empleado cambia
-    empleado_id_for_contract_check = data.id_empleado if data.id_empleado else asignacion.id_empleado
+    # Se aplica solo si fecha_fin está presente en la actualización
+    empleado_id_for_contract_check = asignacion.id_empleado
 
-    if data.fecha_fin is not None or data.id_empleado is not None:
+    if data.fecha_fin is not None:
         empleado = db.query(Empleado).filter(Empleado.id == empleado_id_for_contract_check).first()
         if not empleado:
             raise HTTPException(

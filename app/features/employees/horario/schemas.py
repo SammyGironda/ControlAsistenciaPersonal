@@ -77,17 +77,6 @@ class HorarioBase(BaseModel):
             raise ValueError('Los días laborables deben ser únicos')
         return sorted(v)
 
-    @field_validator('dias_laborables')
-    @classmethod
-    def validar_dias_laborables(cls, v: List[int]) -> List[int]:
-        """Validar que los días estén en rango 1-7."""
-        if not v:
-            raise ValueError('Debe especificar al menos un día laborable')
-        for dia in v:
-            if dia < 1 or dia > 7:
-                raise ValueError('Los días deben estar entre 1 (Lunes) y 7 (Domingo)')
-        return v
-
 
 class HorarioCreate(HorarioBase):
     """Schema para crear un horario. Las horas semanales se calculan automáticamente."""
