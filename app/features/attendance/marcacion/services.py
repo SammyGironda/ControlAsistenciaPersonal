@@ -10,6 +10,7 @@ from sqlalchemy import and_, or_, func
 from fastapi import HTTPException, status, UploadFile
 import pandas as pd
 import json
+import logging
 from pathlib import Path
 
 from app.features.attendance.marcacion.models import (
@@ -23,6 +24,7 @@ from app.features.attendance.marcacion.schemas import (
 )
 from app.features.employees.empleado.models import Empleado
 from app.features.auth.usuario.models import Usuario
+from app.features.attendance.asistencia_diaria import services as asistencia_services
 
 
 # ============================================================
@@ -272,6 +274,7 @@ def procesar_archivo_excel(
         filas_procesadas = 0
         filas_con_error = 0
         errores = []
+        empleados_fechas_procesadas = set()  # Para rastrear qué calcular después
 
         # Procesar cada fila
         for idx, row in df.iterrows():
@@ -332,6 +335,7 @@ def procesar_archivo_excel(
                             id_archivo_excel=archivo.id
                         )
                         db.add(marcacion_entrada)
+                        empleados_fechas_procesadas.add((empleado.id, fecha))
                     except Exception as e:
                         errores.append({
                             "fila": idx + 2,
@@ -354,6 +358,7 @@ def procesar_archivo_excel(
                             id_archivo_excel=archivo.id
                         )
                         db.add(marcacion_salida)
+                        empleados_fechas_procesadas.add((empleado.id, fecha))
                     except Exception as e:
                         errores.append({
                             "fila": idx + 2,
@@ -380,6 +385,21 @@ def procesar_archivo_excel(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Error al guardar marcaciones: {str(e)}"
             )
+
+        # Detectar incidencias (huérfanas y duplicadas) para todas las marcaciones procesadas
+        logger = logging.getLogger(__name__)
+        for id_empleado, fecha in empleados_fechas_procesadas:
+            try:
+                _detectar_incidencias_batch(db, id_empleado, fecha)
+            except Exception as e:
+                logger.warning(f"Error detectando incidencias para empleado {id_empleado} en {fecha}: {str(e)}")
+
+        # Calcular asistencia diaria para los empleados-fechas procesados
+        for id_empleado, fecha in empleados_fechas_procesadas:
+            try:
+                asistencia_services.calcular_asistencia_dia(db, id_empleado, fecha)
+            except Exception as e:
+                logger.warning(f"Error calculando asistencia para empleado {id_empleado} en {fecha}: {str(e)}")
 
         # Actualizar archivo: completado si no hay errores, error si los hay
         estado_final = "completado" if filas_con_error == 0 else "error"
@@ -422,7 +442,86 @@ def procesar_archivo_excel(
 # DETECCIÓN DE INCIDENCIAS
 # ============================================================
 
-def _detectar_incidencias(db: Session, marcacion: Marcacion):
+def _detectar_incidencias_batch(db: Session, id_empleado: int, fecha: date):
+    """
+    Detecta y recalcula incidencias para un empleado en una fecha específica.
+    Se ejecuta DESPUÉS de procesar todas las marcaciones de un archivo.
+
+    Limpia incidencias antiguas y recalcula:
+    - Huérfanas: entrada sin salida o viceversa
+    - Duplicadas: dos del mismo tipo en ventana de 5 minutos
+    """
+    from datetime import time
+
+    fecha_inicio = datetime.combine(fecha, time.min)
+    fecha_fin = datetime.combine(fecha, time.max)
+
+    # Obtener todas las marcaciones del día
+    marcaciones = db.query(Marcacion).filter(
+        and_(
+            Marcacion.id_empleado == id_empleado,
+            Marcacion.fecha_hora_marcacion >= fecha_inicio,
+            Marcacion.fecha_hora_marcacion <= fecha_fin
+        )
+    ).order_by(Marcacion.fecha_hora_marcacion).all()
+
+    if not marcaciones:
+        return
+
+    # Limpiar incidencias anteriores para este empleado-fecha
+    db.query(IncidenciaMarcacion).filter(
+        IncidenciaMarcacion.id_marcacion.in_([m.id for m in marcaciones])
+    ).delete(synchronize_session=False)
+
+    # Procesar cada marcación
+    for marcacion in marcaciones:
+        # Detectar duplicadas (mismo tipo en ventana de 5 minutos)
+        delta = timedelta(minutes=5)
+        duplicadas = db.query(Marcacion).filter(
+            and_(
+                Marcacion.id_empleado == id_empleado,
+                Marcacion.tipo_marcacion == marcacion.tipo_marcacion,
+                Marcacion.id != marcacion.id,
+                Marcacion.fecha_hora_marcacion.between(
+                    marcacion.fecha_hora_marcacion - delta,
+                    marcacion.fecha_hora_marcacion + delta
+                )
+            )
+        ).count()
+
+        if duplicadas > 0:
+            marcacion.es_duplicada = True
+            incidencia = IncidenciaMarcacion(
+                id_marcacion=marcacion.id,
+                tipo_incidencia=TipoIncidenciaEnum.duplicada
+            )
+            db.add(incidencia)
+        else:
+            marcacion.es_duplicada = False
+
+        # Detectar huérfanas (sin pareja en el día)
+        tipo_opuesto = TipoMarcacionEnum.SALIDA if marcacion.tipo_marcacion == TipoMarcacionEnum.ENTRADA else TipoMarcacionEnum.ENTRADA
+
+        pareja = db.query(Marcacion).filter(
+            and_(
+                Marcacion.id_empleado == id_empleado,
+                Marcacion.tipo_marcacion == tipo_opuesto,
+                func.date(Marcacion.fecha_hora_marcacion) == fecha
+            )
+        ).first()
+
+        if not pareja:
+            marcacion.es_huerfana = True
+            incidencia = IncidenciaMarcacion(
+                id_marcacion=marcacion.id,
+                tipo_incidencia=TipoIncidenciaEnum.huerfana
+            )
+            db.add(incidencia)
+        else:
+            marcacion.es_huerfana = False
+
+    db.commit()
+
     """
     Detecta incidencias en una marcación recién creada.
 
