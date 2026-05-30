@@ -392,6 +392,7 @@ def procesar_archivo_excel(
             try:
                 _detectar_incidencias_batch(db, id_empleado, fecha)
             except Exception as e:
+                db.rollback()
                 logger.warning(f"Error detectando incidencias para empleado {id_empleado} en {fecha}: {str(e)}")
 
         # Calcular asistencia diaria para los empleados-fechas procesados
@@ -399,6 +400,7 @@ def procesar_archivo_excel(
             try:
                 asistencia_services.calcular_asistencia_dia(db, id_empleado, fecha)
             except Exception as e:
+                db.rollback()
                 logger.warning(f"Error calculando asistencia para empleado {id_empleado} en {fecha}: {str(e)}")
 
         # Actualizar archivo: completado si no hay errores, error si los hay
@@ -447,9 +449,13 @@ def _detectar_incidencias_batch(db: Session, id_empleado: int, fecha: date):
     Detecta y recalcula incidencias para un empleado en una fecha específica.
     Se ejecuta DESPUÉS de procesar todas las marcaciones de un archivo.
 
-    Limpia incidencias antiguas y recalcula:
-    - Huérfanas: entrada sin salida o viceversa
-    - Duplicadas: dos del mismo tipo en ventana de 5 minutos
+    Procesa cada marcación individualmente para evitar UniqueViolation,
+    preservando el estado de resolución de incidencias existentes.
+
+    Tipos de incidencia:
+    - huerfana: entrada sin salida o viceversa
+    - duplicada: dos del mismo tipo en ventana de 5 minutos
+    - inconsistente: es tanto huérfana como duplicada
     """
     from datetime import time
 
@@ -468,13 +474,18 @@ def _detectar_incidencias_batch(db: Session, id_empleado: int, fecha: date):
     if not marcaciones:
         return
 
-    # Limpiar incidencias anteriores para este empleado-fecha
-    db.query(IncidenciaMarcacion).filter(
-        IncidenciaMarcacion.id_marcacion.in_([m.id for m in marcaciones])
-    ).delete(synchronize_session=False)
+    # Cargar incidencias existentes para estas marcaciones
+    ids_marcaciones = [m.id for m in marcaciones]
+    incidencias_existentes = db.query(IncidenciaMarcacion).filter(
+        IncidenciaMarcacion.id_marcacion.in_(ids_marcaciones)
+    ).all()
+    incidencia_por_marcacion = {inc.id_marcacion: inc for inc in incidencias_existentes}
 
     # Procesar cada marcación
     for marcacion in marcaciones:
+        es_duplicada = False
+        es_huerfana = False
+
         # Detectar duplicadas (mismo tipo en ventana de 5 minutos)
         delta = timedelta(minutes=5)
         duplicadas = db.query(Marcacion).filter(
@@ -491,11 +502,7 @@ def _detectar_incidencias_batch(db: Session, id_empleado: int, fecha: date):
 
         if duplicadas > 0:
             marcacion.es_duplicada = True
-            incidencia = IncidenciaMarcacion(
-                id_marcacion=marcacion.id,
-                tipo_incidencia=TipoIncidenciaEnum.duplicada
-            )
-            db.add(incidencia)
+            es_duplicada = True
         else:
             marcacion.es_duplicada = False
 
@@ -512,23 +519,54 @@ def _detectar_incidencias_batch(db: Session, id_empleado: int, fecha: date):
 
         if not pareja:
             marcacion.es_huerfana = True
-            incidencia = IncidenciaMarcacion(
-                id_marcacion=marcacion.id,
-                tipo_incidencia=TipoIncidenciaEnum.huerfana
-            )
-            db.add(incidencia)
+            es_huerfana = True
         else:
             marcacion.es_huerfana = False
 
+        # Determinar tipo de incidencia necesario
+        necesita_incidencia = es_huerfana or es_duplicada
+        if necesita_incidencia:
+            if es_huerfana and es_duplicada:
+                tipo_incidencia = TipoIncidenciaEnum.inconsistente
+            elif es_duplicada:
+                tipo_incidencia = TipoIncidenciaEnum.duplicada
+            else:
+                tipo_incidencia = TipoIncidenciaEnum.huerfana
+
+        incidencia_actual = incidencia_por_marcacion.get(marcacion.id)
+
+        if necesita_incidencia:
+            if incidencia_actual:
+                # Ya existe: actualizar solo el tipo si cambió
+                if incidencia_actual.tipo_incidencia != tipo_incidencia:
+                    incidencia_actual.tipo_incidencia = tipo_incidencia
+            else:
+                # No existe: crear nueva
+                incidencia = IncidenciaMarcacion(
+                    id_marcacion=marcacion.id,
+                    tipo_incidencia=tipo_incidencia
+                )
+                db.add(incidencia)
+        else:
+            # Ya no necesita incidencia: eliminar si existe
+            if incidencia_actual:
+                db.delete(incidencia_actual)
+
     db.commit()
 
+
+def _detectar_incidencias(db: Session, marcacion: Marcacion):
     """
     Detecta incidencias en una marcación recién creada.
 
     Tipos de incidencia:
     - huerfana: No tiene pareja del tipo opuesto
     - duplicada: Dos marcaciones del mismo tipo consecutivas
+    - inconsistente: Es tanto huérfana como duplicada
     """
+    es_duplicada = False
+    es_huerfana = False
+
     # Detectar duplicadas (mismo tipo en ventana de 5 minutos)
     delta = timedelta(minutes=5)
     duplicadas = db.query(Marcacion).filter(
@@ -545,18 +583,7 @@ def _detectar_incidencias_batch(db: Session, id_empleado: int, fecha: date):
 
     if duplicadas > 0:
         marcacion.es_duplicada = True
-
-        # Crear incidencia si no existe
-        incidencia_existente = db.query(IncidenciaMarcacion).filter(
-            IncidenciaMarcacion.id_marcacion == marcacion.id
-        ).first()
-
-        if not incidencia_existente:
-            incidencia = IncidenciaMarcacion(
-                id_marcacion=marcacion.id,
-                tipo_incidencia=TipoIncidenciaEnum.duplicada
-            )
-            db.add(incidencia)
+        es_duplicada = True
 
     # Detectar huérfanas (sin pareja en el día)
     fecha = marcacion.fecha_hora_marcacion.date()
@@ -572,16 +599,25 @@ def _detectar_incidencias_batch(db: Session, id_empleado: int, fecha: date):
 
     if not pareja:
         marcacion.es_huerfana = True
+        es_huerfana = True
 
-        # Crear incidencia si no existe
+    # Crear incidencia si es huérfana y/o duplicada
+    if es_huerfana or es_duplicada:
         incidencia_existente = db.query(IncidenciaMarcacion).filter(
             IncidenciaMarcacion.id_marcacion == marcacion.id
         ).first()
 
         if not incidencia_existente:
+            if es_huerfana and es_duplicada:
+                tipo_incidencia = TipoIncidenciaEnum.inconsistente
+            elif es_duplicada:
+                tipo_incidencia = TipoIncidenciaEnum.duplicada
+            else:
+                tipo_incidencia = TipoIncidenciaEnum.huerfana
+
             incidencia = IncidenciaMarcacion(
                 id_marcacion=marcacion.id,
-                tipo_incidencia=TipoIncidenciaEnum.huerfana
+                tipo_incidencia=tipo_incidencia
             )
             db.add(incidencia)
 
