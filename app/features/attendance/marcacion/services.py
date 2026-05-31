@@ -508,6 +508,8 @@ def _detectar_incidencias_batch(db: Session, id_empleado: int, fecha: date, id_a
     if not marcaciones_a_evaluar:
         return
 
+    # --- Primera pasada: detectar y asignar flags en ORM ---
+    resultados = []
     for marcacion in marcaciones_a_evaluar:
         es_duplicada = False
         es_huerfana = False
@@ -555,7 +557,13 @@ def _detectar_incidencias_batch(db: Session, id_empleado: int, fecha: date, id_a
         else:
             marcacion.es_huerfana = False
 
-        # --- Crear / actualizar / eliminar incidencia ---
+        resultados.append((marcacion.id, es_huerfana, es_duplicada))
+
+    # Flush para enviar UPDATEs a la BD (dispara trigger de es_huerfana si existe)
+    db.flush()
+
+    # --- Segunda pasada: crear/actualizar/eliminar incidencias ---
+    for marcacion_id, es_huerfana, es_duplicada in resultados:
         necesita_incidencia = es_huerfana or es_duplicada
 
         if necesita_incidencia:
@@ -566,25 +574,21 @@ def _detectar_incidencias_batch(db: Session, id_empleado: int, fecha: date, id_a
             else:
                 tipo_incidencia = TipoIncidenciaEnum.huerfana
 
-            # FIX 1: Verificar directamente en BD (evita cache stale de sesión)
             incidencia_actual = db.query(IncidenciaMarcacion).filter(
-                IncidenciaMarcacion.id_marcacion == marcacion.id
+                IncidenciaMarcacion.id_marcacion == marcacion_id
             ).first()
 
             if incidencia_actual:
-                # Ya existe: solo actualizar tipo si cambió
                 if incidencia_actual.tipo_incidencia != tipo_incidencia:
                     incidencia_actual.tipo_incidencia = tipo_incidencia
             else:
-                # Nueva incidencia
                 db.add(IncidenciaMarcacion(
-                    id_marcacion=marcacion.id,
+                    id_marcacion=marcacion_id,
                     tipo_incidencia=tipo_incidencia,
                 ))
         else:
-            # Ya no aplica: eliminar si existía
             incidencia_actual = db.query(IncidenciaMarcacion).filter(
-                IncidenciaMarcacion.id_marcacion == marcacion.id
+                IncidenciaMarcacion.id_marcacion == marcacion_id
             ).first()
             if incidencia_actual:
                 db.delete(incidencia_actual)
@@ -638,20 +642,27 @@ def _detectar_incidencias(db: Session, marcacion: Marcacion):
         marcacion.es_huerfana = True
         es_huerfana = True
 
-    # Crear incidencia si es huérfana y/o duplicada
+    # Flush para enviar UPDATEs a la BD (dispara trigger de es_huerfana si existe)
+    db.flush()
+
+    # Crear o actualizar incidencia después del flush para que el trigger
+    # de BD (si existe) ya haya creado la fila y evitar UniqueViolation.
     if es_huerfana or es_duplicada:
+        if es_huerfana and es_duplicada:
+            tipo_incidencia = TipoIncidenciaEnum.inconsistente
+        elif es_duplicada:
+            tipo_incidencia = TipoIncidenciaEnum.duplicada
+        else:
+            tipo_incidencia = TipoIncidenciaEnum.huerfana
+
         incidencia_existente = db.query(IncidenciaMarcacion).filter(
             IncidenciaMarcacion.id_marcacion == marcacion.id
         ).first()
 
-        if not incidencia_existente:
-            if es_huerfana and es_duplicada:
-                tipo_incidencia = TipoIncidenciaEnum.inconsistente
-            elif es_duplicada:
-                tipo_incidencia = TipoIncidenciaEnum.duplicada
-            else:
-                tipo_incidencia = TipoIncidenciaEnum.huerfana
-
+        if incidencia_existente:
+            if incidencia_existente.tipo_incidencia != tipo_incidencia:
+                incidencia_existente.tipo_incidencia = tipo_incidencia
+        else:
             incidencia = IncidenciaMarcacion(
                 id_marcacion=marcacion.id,
                 tipo_incidencia=tipo_incidencia
