@@ -367,6 +367,31 @@ def procesar_archivo_excel(
                         filas_con_error += 1
                         continue
 
+                # ═══════════════════════════════════════════════════════════
+                # FIX 3: COLUMNAS G-H — Solo 1 turno, si hay datos = duplicado
+                # No se procesan como marcaciones, se registran como advertencia
+                # ═══════════════════════════════════════════════════════════
+                hora_entrada2 = str(row.iloc[6]).strip() if len(row) > 6 and pd.notna(row.iloc[6]) else None
+                hora_salida2  = str(row.iloc[7]).strip() if len(row) > 7 and pd.notna(row.iloc[7]) else None
+
+                tiene_entrada2 = hora_entrada2 and hora_entrada2.lower() != 'nan'
+                tiene_salida2  = hora_salida2  and hora_salida2.lower()  != 'nan'
+
+                if tiene_entrada2 or tiene_salida2:
+                    errores.append({
+                        "fila": idx + 2,
+                        "empleado_id": empleado.id,
+                        "fecha": str(fecha),
+                        "error": (
+                            f"Posible duplicado detectado en columnas G-H: "
+                            f"Entrada2='{hora_entrada2 if tiene_entrada2 else '-'}', "
+                            f"Salida2='{hora_salida2 if tiene_salida2 else '-'}'. "
+                            f"Sistema de 1 turno: revisar manualmente."
+                        ),
+                        "tipo": "advertencia_duplicado"
+                    })
+                    filas_con_error += 1
+
                 filas_procesadas += 1
 
             except Exception as e:
@@ -390,10 +415,12 @@ def procesar_archivo_excel(
         logger = logging.getLogger(__name__)
         for id_empleado, fecha in empleados_fechas_procesadas:
             try:
-                _detectar_incidencias_batch(db, id_empleado, fecha)
+                _detectar_incidencias_batch(db, id_empleado, fecha, archivo.id)
             except Exception as e:
-                db.rollback()
-                logger.warning(f"Error detectando incidencias para empleado {id_empleado} en {fecha}: {str(e)}")
+                db.rollback()  # ← FIX 2: recuperar sesión para evitar "Session rolled back" en siguiente iteración
+                logger.warning(
+                    f"Error detectando incidencias para empleado {id_empleado} en {fecha}: {str(e)}"
+                )
 
         # Calcular asistencia diaria para los empleados-fechas procesados
         for id_empleado, fecha in empleados_fechas_procesadas:
@@ -444,17 +471,18 @@ def procesar_archivo_excel(
 # DETECCIÓN DE INCIDENCIAS
 # ============================================================
 
-def _detectar_incidencias_batch(db: Session, id_empleado: int, fecha: date):
+def _detectar_incidencias_batch(db: Session, id_empleado: int, fecha: date, id_archivo_excel: Optional[int] = None):
     """
     Detecta y recalcula incidencias para un empleado en una fecha específica.
     Se ejecuta DESPUÉS de procesar todas las marcaciones de un archivo.
 
-    Procesa cada marcación individualmente para evitar UniqueViolation,
-    preservando el estado de resolución de incidencias existentes.
+    IMPORTANTE: La búsqueda de parejas y duplicadas se hace sobre TODAS las
+    marcaciones del día (sin filtrar por archivo), para reflejar la realidad
+    de la jornada completa.
 
     Tipos de incidencia:
-    - huerfana: entrada sin salida o viceversa
-    - duplicada: dos del mismo tipo en ventana de 5 minutos
+    - huerfana: entrada sin salida o viceversa en el día completo
+    - duplicada: dos del mismo tipo en ventana de 5 minutos (en el día completo)
     - inconsistente: es tanto huérfana como duplicada
     """
     from datetime import time
@@ -462,31 +490,30 @@ def _detectar_incidencias_batch(db: Session, id_empleado: int, fecha: date):
     fecha_inicio = datetime.combine(fecha, time.min)
     fecha_fin = datetime.combine(fecha, time.max)
 
-    # Obtener todas las marcaciones del día
-    marcaciones = db.query(Marcacion).filter(
-        and_(
-            Marcacion.id_empleado == id_empleado,
-            Marcacion.fecha_hora_marcacion >= fecha_inicio,
-            Marcacion.fecha_hora_marcacion <= fecha_fin
-        )
+    # Obtener marcaciones a evaluar:
+    # Si se especifica archivo → solo las del archivo actual (las recién insertadas)
+    # Si no → todas las del día
+    filtros_base = [
+        Marcacion.id_empleado == id_empleado,
+        Marcacion.fecha_hora_marcacion >= fecha_inicio,
+        Marcacion.fecha_hora_marcacion <= fecha_fin,
+    ]
+    if id_archivo_excel is not None:
+        filtros_base.append(Marcacion.id_archivo_excel == id_archivo_excel)
+
+    marcaciones_a_evaluar = db.query(Marcacion).filter(
+        and_(*filtros_base)
     ).order_by(Marcacion.fecha_hora_marcacion).all()
 
-    if not marcaciones:
+    if not marcaciones_a_evaluar:
         return
 
-    # Cargar incidencias existentes para estas marcaciones
-    ids_marcaciones = [m.id for m in marcaciones]
-    incidencias_existentes = db.query(IncidenciaMarcacion).filter(
-        IncidenciaMarcacion.id_marcacion.in_(ids_marcaciones)
-    ).all()
-    incidencia_por_marcacion = {inc.id_marcacion: inc for inc in incidencias_existentes}
-
-    # Procesar cada marcación
-    for marcacion in marcaciones:
+    for marcacion in marcaciones_a_evaluar:
         es_duplicada = False
         es_huerfana = False
 
-        # Detectar duplicadas (mismo tipo en ventana de 5 minutos)
+        # --- Detectar duplicadas ---
+        # Busca en TODAS las marcaciones del día (no solo del archivo)
         delta = timedelta(minutes=5)
         duplicadas = db.query(Marcacion).filter(
             and_(
@@ -495,8 +522,8 @@ def _detectar_incidencias_batch(db: Session, id_empleado: int, fecha: date):
                 Marcacion.id != marcacion.id,
                 Marcacion.fecha_hora_marcacion.between(
                     marcacion.fecha_hora_marcacion - delta,
-                    marcacion.fecha_hora_marcacion + delta
-                )
+                    marcacion.fecha_hora_marcacion + delta,
+                ),
             )
         ).count()
 
@@ -506,14 +533,19 @@ def _detectar_incidencias_batch(db: Session, id_empleado: int, fecha: date):
         else:
             marcacion.es_duplicada = False
 
-        # Detectar huérfanas (sin pareja en el día)
-        tipo_opuesto = TipoMarcacionEnum.SALIDA if marcacion.tipo_marcacion == TipoMarcacionEnum.ENTRADA else TipoMarcacionEnum.ENTRADA
+        # --- Detectar huérfanas ---
+        # Busca en TODAS las marcaciones del día (no solo del archivo)
+        tipo_opuesto = (
+            TipoMarcacionEnum.SALIDA
+            if marcacion.tipo_marcacion == TipoMarcacionEnum.ENTRADA
+            else TipoMarcacionEnum.ENTRADA
+        )
 
         pareja = db.query(Marcacion).filter(
             and_(
                 Marcacion.id_empleado == id_empleado,
                 Marcacion.tipo_marcacion == tipo_opuesto,
-                func.date(Marcacion.fecha_hora_marcacion) == fecha
+                func.date(Marcacion.fecha_hora_marcacion) == fecha,
             )
         ).first()
 
@@ -523,8 +555,9 @@ def _detectar_incidencias_batch(db: Session, id_empleado: int, fecha: date):
         else:
             marcacion.es_huerfana = False
 
-        # Determinar tipo de incidencia necesario
+        # --- Crear / actualizar / eliminar incidencia ---
         necesita_incidencia = es_huerfana or es_duplicada
+
         if necesita_incidencia:
             if es_huerfana and es_duplicada:
                 tipo_incidencia = TipoIncidenciaEnum.inconsistente
@@ -533,22 +566,26 @@ def _detectar_incidencias_batch(db: Session, id_empleado: int, fecha: date):
             else:
                 tipo_incidencia = TipoIncidenciaEnum.huerfana
 
-        incidencia_actual = incidencia_por_marcacion.get(marcacion.id)
+            # FIX 1: Verificar directamente en BD (evita cache stale de sesión)
+            incidencia_actual = db.query(IncidenciaMarcacion).filter(
+                IncidenciaMarcacion.id_marcacion == marcacion.id
+            ).first()
 
-        if necesita_incidencia:
             if incidencia_actual:
-                # Ya existe: actualizar solo el tipo si cambió
+                # Ya existe: solo actualizar tipo si cambió
                 if incidencia_actual.tipo_incidencia != tipo_incidencia:
                     incidencia_actual.tipo_incidencia = tipo_incidencia
             else:
-                # No existe: crear nueva
-                incidencia = IncidenciaMarcacion(
+                # Nueva incidencia
+                db.add(IncidenciaMarcacion(
                     id_marcacion=marcacion.id,
-                    tipo_incidencia=tipo_incidencia
-                )
-                db.add(incidencia)
+                    tipo_incidencia=tipo_incidencia,
+                ))
         else:
-            # Ya no necesita incidencia: eliminar si existe
+            # Ya no aplica: eliminar si existía
+            incidencia_actual = db.query(IncidenciaMarcacion).filter(
+                IncidenciaMarcacion.id_marcacion == marcacion.id
+            ).first()
             if incidencia_actual:
                 db.delete(incidencia_actual)
 
