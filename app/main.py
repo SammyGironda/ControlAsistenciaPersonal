@@ -144,6 +144,10 @@ app.include_router(vacaciones_router, prefix=settings.API_PREFIX)
 from app.features.reports.reporte.router import router as reporte_router
 app.include_router(reporte_router, prefix=settings.API_PREFIX)
 
+# --- Dashboard: Estadisticas ---
+from app.features.dashboard.router import router as dashboard_router
+app.include_router(dashboard_router, prefix=settings.API_PREFIX)
+
 
 # ============================================================
 # WORKER AUTOMÁTICO - Semana 6
