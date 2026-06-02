@@ -95,6 +95,20 @@ def _exportar_xlsx(filas: list[dict], ruta_archivo: Path, nombre_hoja: str) -> N
     """Exporta un listado de diccionarios a archivo XLSX."""
 
     dataframe = pd.DataFrame(filas)
+
+    # Excel no soporta datetimes con timezone; convertir a naive (UTC)
+    for col in dataframe.columns:
+        try:
+            # Detectar columnas con dtype datetime tz-aware
+            if pd.api.types.is_datetime64tz_dtype(dataframe[col]):
+                dataframe[col] = dataframe[col].dt.tz_convert("UTC").dt.tz_localize(None)
+            # Asegurar que columnas datetime sin tz estén en tipo datetime
+            elif pd.api.types.is_datetime64_any_dtype(dataframe[col]):
+                dataframe[col] = pd.to_datetime(dataframe[col])
+        except Exception:
+            # Si no se puede convertir, dejar el valor tal cual (p. ej. strings u objetos mixtos)
+            continue
+
     dataframe.to_excel(ruta_archivo, index=False, sheet_name=nombre_hoja)
 
 
