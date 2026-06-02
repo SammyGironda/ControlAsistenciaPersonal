@@ -215,7 +215,7 @@ def generar_reporte_asistencia_mensual(db: Session, data: ReporteAsistenciaMensu
         FROM rrhh.v_asistencia_mensual v
         JOIN rrhh.empleado e ON e.id = v.id_empleado
         JOIN rrhh.departamento d ON d.id = e.id_departamento
-        WHERE v.mes = DATE_TRUNC('month', :periodo_inicio::date)
+                WHERE v.mes = DATE_TRUNC('month', CAST(:periodo_inicio AS date))
           AND (:id_departamento IS NULL OR d.id = :id_departamento)
           AND (:id_empleado IS NULL OR v.id_empleado = :id_empleado)
         ORDER BY v.departamento, v.nombre_completo
@@ -277,9 +277,9 @@ def generar_reporte_planilla(db: Session, data: ReportePlanillaRequest) -> Repor
             total_descuentos,
             salario_neto_estimado
         FROM rrhh.v_saldo_impuestos_planilla
-        WHERE mes = DATE_TRUNC('month', :periodo_inicio::date)
-          AND (:id_departamento IS NULL OR id_departamento = :id_departamento)
-          AND (:id_empleado IS NULL OR id_empleado = :id_empleado)
+                WHERE mes = DATE_TRUNC('month', CAST(:periodo_inicio AS date))
+                    AND (:id_departamento IS NULL OR id_departamento = :id_departamento)
+                    AND (:id_empleado IS NULL OR id_empleado = :id_empleado)
         ORDER BY departamento, nombre_completo
         """
     )
