@@ -6,7 +6,7 @@ Incluye cálculo automático de retrasos, minutos trabajados y tipo de día.
 from datetime import date, datetime, time, timedelta
 from typing import Optional, List
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import and_, func, or_, text
+from sqlalchemy import and_, func, or_, text, bindparam
 from fastapi import HTTPException, status
 
 from app.features.attendance.asistencia_diaria.models import AsistenciaDiaria, EstadoDiaEnum
@@ -647,15 +647,13 @@ def get_resumen_mensual_desde_vista(db: Session, id_empleado: int, anio: int, me
     """Consulta la vista rrhh.v_asistencia_mensual para un empleado y mes."""
     inicio_mes = date(anio, mes, 1)
     sql = text(
-        """
-        SELECT *
-        FROM rrhh.v_asistencia_mensual
-        WHERE id_empleado = :id_empleado
-          AND mes = date_trunc('month', :inicio_mes::date)
-        LIMIT 1
-        """
+        "SELECT * "
+        "FROM rrhh.v_asistencia_mensual "
+        "WHERE id_empleado = :id_empleado "
+        "AND mes = date_trunc('month', CAST(:inicio_mes AS date)) "
+        "LIMIT 1"
     )
-    row = db.execute(sql, {"id_empleado": id_empleado, "inicio_mes": inicio_mes}).mappings().first()
+    row = db.execute(sql, {"id_empleado": id_empleado, "inicio_mes": str(inicio_mes)}).mappings().first()
     if not row:
         return None
     return dict(row)
