@@ -1,5 +1,7 @@
 """
 Servicios de negocio para metricas de dashboard.
+
+VERSIÓN: 2.0.1 - Fix para error 500 en horas-trabajadas-mes
 """
 
 from datetime import date
@@ -60,8 +62,12 @@ def get_retrasos_por_mes(db: Session, meses_atras: int = 5) -> list[dict[str, An
 def get_horas_trabajadas_mes(db: Session, anio: int, mes: int) -> dict[str, Any]:
     """Obtiene detalle por empleado y resumen global de horas trabajadas del mes."""
 
-    inicio_mes = date(anio, mes, 1)
+    try:
+        inicio_mes = date(anio, mes, 1)
+    except ValueError as e:
+        raise ValueError(f"Parámetros de fecha inválidos: año={anio}, mes={mes}. Error: {e}")
 
+    # Consulta que incluye solo empleados con registros en asistencia_diaria
     sql = text(
         """
         SELECT
@@ -70,24 +76,21 @@ def get_horas_trabajadas_mes(db: Session, anio: int, mes: int) -> dict[str, Any]
             e.apellidos,
             e.id_cargo,
             e.id_departamento,
-            COALESCE(SUM(ad.minutos_trabajados), 0)::int AS total_minutos_trabajados,
-            ROUND(COALESCE(SUM(ad.minutos_trabajados), 0)::numeric / 60, 2) AS total_horas_trabajadas,
-            COUNT(*) FILTER (
-                WHERE ad.tipo_dia IN ('presente', 'presente_exento')
-            )::int AS dias_presentes,
-            COUNT(*) FILTER (
-                WHERE COALESCE(ad.horas_extra, 0) > 0
-            )::int AS dias_con_horas_extra,
-            ROUND(COALESCE(SUM(ad.horas_extra), 0)::numeric, 2) AS total_horas_extra
+            COALESCE(SUM(ad.minutos_trabajados), 0)::integer AS total_minutos_trabajados,
+            ROUND(COALESCE(SUM(ad.minutos_trabajados), 0)::numeric / 60.0, 2) AS total_horas_trabajadas,
+            COUNT(*) FILTER (WHERE ad.tipo_dia IN ('presente', 'presente_exento'))::integer AS dias_presentes,
+            COUNT(*) FILTER (WHERE COALESCE(ad.horas_extra, 0) > 0)::integer AS dias_con_horas_extra,
+            COALESCE(ROUND(SUM(ad.horas_extra), 2), 0.0) AS total_horas_extra
         FROM rrhh.asistencia_diaria ad
-        JOIN rrhh.empleado e ON e.id = ad.id_empleado
-        WHERE DATE_TRUNC('month', ad.fecha) = DATE_TRUNC('month', :inicio_mes::date)
+        INNER JOIN rrhh.empleado e ON e.id = ad.id_empleado
+        WHERE EXTRACT(YEAR FROM ad.fecha) = :anio
+          AND EXTRACT(MONTH FROM ad.fecha) = :mes
         GROUP BY e.id, e.nombres, e.apellidos, e.id_cargo, e.id_departamento
-        ORDER BY total_horas_trabajadas DESC, e.apellidos ASC, e.nombres ASC
+        ORDER BY total_horas_trabajadas DESC, e.apellidos, e.nombres
         """
     )
 
-    rows = db.execute(sql, {"inicio_mes": inicio_mes}).mappings().all()
+    rows = db.execute(sql, {"anio": anio, "mes": mes}).mappings().all()
 
     por_empleado = [_map_horas_empleado_row(row) for row in rows]
 
