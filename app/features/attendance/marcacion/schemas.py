@@ -154,7 +154,23 @@ class IncidenciaMarcacionResponse(IncidenciaMarcacionBase):
     created_at: datetime
     updated_at: datetime
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "tipo_incidencia": "duplicada",
+                "evidencia_url": "/docs/evidencias/incidencia_123.pdf",
+                "descripcion_resolucion": "Se corrigió la marcación de salida manualmente",
+                "id": 0,
+                "id_marcacion": 0,
+                "estado_resolucion": "resuelto",
+                "id_resuelto_por": 1,
+                "fecha_resolucion": "2026-07-22T15:11:26.993Z",
+                "created_at": "2026-07-22T15:11:26.994Z",
+                "updated_at": "2026-07-22T15:11:26.994Z"
+            }
+        }
+    )
 
 
 class IncidenciaMarcacionUpdate(BaseModel):

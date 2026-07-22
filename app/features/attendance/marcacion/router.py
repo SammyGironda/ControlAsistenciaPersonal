@@ -227,7 +227,24 @@ def get_incidencias_pendientes(
 )
 def resolver_incidencia(
     incidencia_id: int = Path(..., gt=0),
-    data: IncidenciaMarcacionUpdate = Body(...),
+    data: IncidenciaMarcacionUpdate = Body(
+        ...,
+        examples={
+            "resolver_incidencia": {
+                "summary": "Ejemplo de resolución de incidencia",
+                "description": "Resuelve una incidencia con datos de corrección manual y muestra el payload completo.",
+                "value": {
+                    "accion_resolucion": "completar",
+                    "descripcion_resolucion": "Se corrigió la marcación de salida manualmente",
+                    "estado_resolucion": "resuelto",
+                    "evidencia_url": "/docs/evidencias/incidencia_123.pdf",
+                    "hora_correccion": "08:00",
+                    "id_resuelto_por": 1,
+                    "tipo_marcacion_correccion": "SALIDA"
+                }
+            }
+        }
+    ),
     db: Session = Depends(get_db)
 ):
     """
