@@ -3,9 +3,9 @@ Services para Marcaciones - Lógica de negocio.
 Incluye procesamiento de archivos Excel con Pandas.
 """
 
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, time
 from typing import List, Optional, Dict, Any
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_, or_, func
 from fastapi import HTTPException, status, UploadFile
 import pandas as pd
@@ -24,6 +24,7 @@ from app.features.attendance.marcacion.schemas import (
 )
 from app.features.employees.empleado.models import Empleado
 from app.features.auth.usuario.models import Usuario
+from app.features.employees.horario.models import AsignacionHorario
 from app.features.attendance.asistencia_diaria import services as asistencia_services
 
 
@@ -159,6 +160,170 @@ def get_all_archivos(db: Session, skip: int = 0, limit: int = 100) -> List[Archi
 # INCIDENCIAS - CRUD
 # ============================================================
 
+def _resolver_hora_correccion(horario, tipo_marcacion: TipoMarcacionEnum, hora_correccion=None):
+    """Resuelve la hora de corrección usando el horario del empleado cuando no viene explícita."""
+    if hora_correccion:
+        if isinstance(hora_correccion, datetime):
+            return hora_correccion.time()
+        if isinstance(hora_correccion, time):
+            return hora_correccion
+        if isinstance(hora_correccion, str):
+            try:
+                hh, mm = [int(p) for p in hora_correccion.split(":", 1)]
+                return time(hour=hh, minute=mm)
+            except ValueError:
+                return None
+        return None
+
+    if not horario:
+        return None
+
+    if tipo_marcacion == TipoMarcacionEnum.SALIDA:
+        return horario.hora_salida
+
+    return horario.hora_entrada
+
+
+def _seleccionar_marcacion_duplicada(marcaciones, hora_esperada: time, tipo_marcacion: TipoMarcacionEnum):
+    """Selecciona qué marcador duplicado conservar según el tipo de marcación y la hora esperada."""
+    if not marcaciones:
+        return None
+    if len(marcaciones) == 1:
+        return marcaciones[0]
+
+    marcaciones_ordenadas = sorted(marcaciones, key=lambda m: m.fecha_hora_marcacion)
+
+    if tipo_marcacion == TipoMarcacionEnum.SALIDA:
+        return marcaciones_ordenadas[-1]
+
+    return marcaciones_ordenadas[0]
+
+
+def _obtener_horario_empleado(db: Session, id_empleado: int, fecha: date):
+    """Obtiene la asignación de horario vigente para un empleado en una fecha."""
+    asignacion = db.query(AsignacionHorario).options(joinedload(AsignacionHorario.horario)).filter(
+        and_(
+            AsignacionHorario.id_empleado == id_empleado,
+            AsignacionHorario.fecha_inicio <= fecha,
+            or_(
+                AsignacionHorario.fecha_fin.is_(None),
+                AsignacionHorario.fecha_fin >= fecha,
+            ),
+        )
+    ).first()
+
+    return asignacion.horario if asignacion else None
+
+
+def _recalcular_asistencia_dia(db: Session, id_empleado: int, fecha: date):
+    """Recalcula la asistencia diaria para un empleado en una fecha."""
+    try:
+        asistencia_services.calcular_asistencia_dia(db, id_empleado, fecha)
+    except HTTPException:
+        return
+
+
+def _aplicar_resolucion_incidencia(db: Session, incidencia: IncidenciaMarcacion, data: IncidenciaMarcacionUpdate):
+    """Aplica una corrección real a las marcaciones cuando la incidencia se resuelve."""
+    if not incidencia.marcacion:
+        return
+
+    marcacion = incidencia.marcacion
+    fecha = marcacion.fecha_hora_marcacion.date()
+    horario = _obtener_horario_empleado(db, marcacion.id_empleado, fecha)
+
+    if incidencia.tipo_incidencia == TipoIncidenciaEnum.huerfana:
+        accion = data.accion_resolucion or "completar"
+        if accion != "completar":
+            return
+
+        tipo_marcacion_correccion = data.tipo_marcacion_correccion or (
+            TipoMarcacionEnum.SALIDA if marcacion.tipo_marcacion == TipoMarcacionEnum.ENTRADA else TipoMarcacionEnum.ENTRADA
+        )
+        hora_correccion = _resolver_hora_correccion(
+            horario=horario,
+            tipo_marcacion=tipo_marcacion_correccion,
+            hora_correccion=data.hora_correccion,
+        )
+        if not hora_correccion:
+            return
+
+        nueva_marcacion = Marcacion(
+            id_empleado=marcacion.id_empleado,
+            fecha_hora_marcacion=datetime.combine(fecha, hora_correccion),
+            tipo_marcacion=tipo_marcacion_correccion,
+            origen_dato=OrigenDatoEnum.Manual,
+            observacion="Marcación creada por resolución manual de incidencia",
+        )
+        db.add(nueva_marcacion)
+        db.flush()
+        return
+
+    if incidencia.tipo_incidencia == TipoIncidenciaEnum.duplicada:
+        tipo_marcacion = marcacion.tipo_marcacion
+        marcaciones_dia = db.query(Marcacion).filter(
+            and_(
+                Marcacion.id_empleado == marcacion.id_empleado,
+                Marcacion.tipo_marcacion == tipo_marcacion,
+                func.date(Marcacion.fecha_hora_marcacion) == fecha,
+            )
+        ).all()
+
+        if not marcaciones_dia:
+            return
+
+        accion = data.accion_resolucion or "auto"
+        if accion == "conservar_primera":
+            mantener = sorted(marcaciones_dia, key=lambda m: m.fecha_hora_marcacion)[0]
+        elif accion == "conservar_ultima":
+            mantener = sorted(marcaciones_dia, key=lambda m: m.fecha_hora_marcacion)[-1]
+        else:
+            mantener = _seleccionar_marcacion_duplicada(
+                marcaciones_dia,
+                hora_esperada=_resolver_hora_correccion(horario, tipo_marcacion, None),
+                tipo_marcacion=tipo_marcacion,
+            )
+
+        if incidencia.id_marcacion != mantener.id:
+            incidencia.id_marcacion = mantener.id
+
+        for otra in marcaciones_dia:
+            if otra.id != mantener.id:
+                db.delete(otra)
+        db.flush()
+        return
+
+    if incidencia.tipo_incidencia == TipoIncidenciaEnum.inconsistente:
+        accion = data.accion_resolucion or "corregir_entrada"
+        hora_correccion = _resolver_hora_correccion(
+            horario=horario,
+            tipo_marcacion=marcacion.tipo_marcacion,
+            hora_correccion=data.hora_correccion,
+        )
+        if not hora_correccion:
+            return
+
+        if accion == "eliminar_ambas":
+            marcaciones_dia = db.query(Marcacion).filter(
+                and_(
+                    Marcacion.id_empleado == marcacion.id_empleado,
+                    func.date(Marcacion.fecha_hora_marcacion) == fecha,
+                )
+            ).all()
+            for otra in marcaciones_dia:
+                db.delete(otra)
+            db.flush()
+            return
+
+        if accion in {"corregir_entrada", "corregir_salida"}:
+            marcacion.fecha_hora_marcacion = datetime.combine(fecha, hora_correccion)
+            marcacion.origen_dato = OrigenDatoEnum.Manual
+            marcacion.observacion = "Marcación ajustada por resolución manual de incidencia"
+            db.add(marcacion)
+            db.flush()
+            return
+
+
 def get_incidencias_pendientes(db: Session, skip: int = 0, limit: int = 100) -> List[IncidenciaMarcacion]:
     """Obtiene incidencias pendientes de resolución."""
     return db.query(IncidenciaMarcacion).filter(
@@ -178,12 +343,18 @@ def update_incidencia(db: Session, incidencia_id: int, data: IncidenciaMarcacion
     for key, value in data.model_dump(exclude_unset=True).items():
         setattr(incidencia, key, value)
 
-    # Si se marca como resuelta, agregar fecha
     if data.estado_resolucion == EstadoResolucionEnum.resuelto.value and not incidencia.fecha_resolucion:
         incidencia.fecha_resolucion = datetime.now()
 
+    if data.estado_resolucion == EstadoResolucionEnum.resuelto.value:
+        _aplicar_resolucion_incidencia(db, incidencia, data)
+
     db.commit()
     db.refresh(incidencia)
+
+    if data.estado_resolucion == EstadoResolucionEnum.resuelto.value and incidencia.marcacion:
+        _recalcular_asistencia_dia(db, incidencia.marcacion.id_empleado, incidencia.marcacion.fecha_hora_marcacion.date())
+
     return incidencia
 
 
