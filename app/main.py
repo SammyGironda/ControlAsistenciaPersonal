@@ -78,7 +78,7 @@ from app.features.attendance.marcacion.models import (  # noqa: F401
 )
 
 # --- Semana 6: Attendance - Asistencia Diaria ---
-from app.features.attendance.asistencia_diaria.models import AsistenciaDiaria, EstadoDiaEnum  # noqa: F401
+from app.features.attendance.asistencia_diaria.models import AsistenciaDiaria, EstadoDiaEnum, PeriodoAsistencia  # noqa: F401
 
 # --- Semana 7: Attendance - Feriados, Justificaciones y Vacaciones ---
 from app.features.attendance.feriados.models import DiaFestivo, AmbitoFestivoEnum  # noqa: F401
@@ -152,11 +152,12 @@ app.include_router(dashboard_router, prefix=settings.API_PREFIX)
 # ============================================================
 # WORKER AUTOMÁTICO - Semana 6
 # ============================================================
-from app.features.attendance.worker import start_scheduler, shutdown_scheduler, get_scheduler_status
+# El scheduler diario fue retirado: la asistencia se consolida al cerrar cada mes.
 
 
 @app.on_event("startup")
 async def startup_event():
+    return
     """Iniciar worker de asistencia diaria al arrancar la aplicación."""
     import logging
     logger = logging.getLogger(__name__)
@@ -172,6 +173,7 @@ async def startup_event():
 
 @app.on_event("shutdown")
 async def shutdown_event():
+    return
     """Detener worker al apagar la aplicación."""
     import logging
     logger = logging.getLogger(__name__)
@@ -187,5 +189,6 @@ async def shutdown_event():
 
 @app.get("/worker/status", tags=["Worker"])
 def worker_status():
+    return {"running": False, "message": "Scheduler diario deshabilitado; use el cierre mensual."}
     """Endpoint para verificar el estado del worker de asistencia."""
     return get_scheduler_status()

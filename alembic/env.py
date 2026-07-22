@@ -39,7 +39,7 @@ from app.features.attendance.marcacion.models import (  # noqa: F401
 )
 
 # --- Semana 6: Attendance - Asistencia Diaria ---
-from app.features.attendance.asistencia_diaria.models import AsistenciaDiaria  # noqa: F401
+from app.features.attendance.asistencia_diaria.models import AsistenciaDiaria, PeriodoAsistencia  # noqa: F401
 
 # --- Semana 7: Feriados, Justificaciones y Vacaciones ---
 from app.features.attendance.feriados.models import DiaFestivo  # noqa: F401

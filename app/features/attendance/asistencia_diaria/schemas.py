@@ -227,3 +227,31 @@ class ResultadoProcesamiento(BaseModel):
                 ]
             }
         }
+
+
+class ResultadoCierrePeriodo(BaseModel):
+    """Resultado consolidado del cierre mensual de asistencia."""
+    anio: int
+    mes: int
+    fecha_desde: date
+    fecha_hasta: date
+    estado: str
+    dias_procesados: int
+    empleados_procesados: int
+    empleados_con_error: int
+    empleados_skipped: int
+    errores: list[str] = Field(default_factory=list)
+
+
+class PeriodoAsistenciaResponse(BaseModel):
+    id: int
+    anio: int
+    mes: int
+    estado: str
+    cerrado_en: Optional[datetime]
+    id_cerrado_por: Optional[int]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True

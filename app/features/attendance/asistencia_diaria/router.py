@@ -13,7 +13,8 @@ from app.features.attendance.asistencia_diaria import services
 from app.features.attendance.asistencia_diaria.schemas import (
     AsistenciaDiariaCreate, AsistenciaDiariaUpdate,
     AsistenciaDiariaResponse, AsistenciaDiariaConDetalles,
-    ResultadoProcesamiento, ResumenAsistenciaMensual
+    ResultadoProcesamiento, ResumenAsistenciaMensual, ResultadoCierrePeriodo,
+    PeriodoAsistenciaResponse,
 )
 
 router = APIRouter(
@@ -239,6 +240,39 @@ def recalcular_asistencia_empleado(
     Si no existe, lo crea.
     """
     return services.calcular_asistencia_dia(db, id_empleado, fecha)
+
+
+# ============================================================
+# CIERRE MENSUAL
+# ============================================================
+
+@router.post(
+    "/periodos/{anio}/{mes}/cerrar",
+    response_model=ResultadoCierrePeriodo,
+    summary="Cerrar y procesar un período mensual",
+    description="Valida incidencias pendientes, recalcula todos los días del mes y bloquea el período.",
+)
+def cerrar_periodo_mensual(
+    anio: int = Path(..., ge=2020, le=2100),
+    mes: int = Path(..., ge=1, le=12),
+    id_cerrado_por: Optional[int] = Query(None, gt=0),
+    db: Session = Depends(get_db),
+):
+    return services.cerrar_periodo_asistencia(db, anio, mes, id_cerrado_por)
+
+
+@router.post(
+    "/periodos/{anio}/{mes}/reabrir",
+    response_model=PeriodoAsistenciaResponse,
+    summary="Reabrir un período mensual",
+    description="Habilita de nuevo un período cerrado para importar o corregir marcaciones.",
+)
+def reabrir_periodo_mensual(
+    anio: int = Path(..., ge=2020, le=2100),
+    mes: int = Path(..., ge=1, le=12),
+    db: Session = Depends(get_db),
+):
+    return services.reabrir_periodo_asistencia(db, anio, mes)
 
 
 # ============================================================

@@ -9,14 +9,18 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_, func, or_, text, bindparam
 from fastapi import HTTPException, status
 
-from app.features.attendance.asistencia_diaria.models import AsistenciaDiaria, EstadoDiaEnum
+from app.features.attendance.asistencia_diaria.models import (
+    AsistenciaDiaria, EstadoDiaEnum, PeriodoAsistencia, EstadoPeriodoAsistenciaEnum,
+)
 from app.features.attendance.asistencia_diaria.schemas import (
-    AsistenciaDiariaCreate, AsistenciaDiariaUpdate, ResultadoProcesamiento
+    AsistenciaDiariaCreate, AsistenciaDiariaUpdate, ResultadoProcesamiento, ResultadoCierrePeriodo,
 )
 from app.features.employees.empleado.models import Empleado
 from app.features.employees.cargo.models import Cargo
 from app.features.employees.horario.models import Horario, AsignacionHorario
-from app.features.attendance.marcacion.models import Marcacion, TipoMarcacionEnum
+from app.features.attendance.marcacion.models import (
+    Marcacion, TipoMarcacionEnum, IncidenciaMarcacion, EstadoResolucionEnum,
+)
 from app.features.attendance.feriados.models import DiaFestivo, AmbitoFestivoEnum
 from app.features.attendance.justificacion.models import JustificacionAusencia, EstadoAprobacionEnum, TipoJustificacionEnum
 
@@ -425,6 +429,98 @@ def procesar_asistencia_masiva(db: Session, fecha: date) -> ResultadoProcesamien
         empleados_skipped=skipped,
         errores=errores_lista
     )
+
+
+def obtener_rango_mes(anio: int, mes: int) -> tuple[date, date]:
+    """Retorna las fechas inclusivas que componen un mes calendario."""
+    fecha_desde = date(anio, mes, 1)
+    fecha_hasta = (fecha_desde.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+    return fecha_desde, fecha_hasta
+
+
+def get_periodo_asistencia(db: Session, anio: int, mes: int) -> Optional[PeriodoAsistencia]:
+    return db.query(PeriodoAsistencia).filter(
+        PeriodoAsistencia.anio == anio,
+        PeriodoAsistencia.mes == mes,
+    ).first()
+
+
+def hay_incidencias_pendientes_periodo(db: Session, fecha_desde: date, fecha_hasta: date) -> bool:
+    """Indica si el período conserva incidencias sin decisión de RR. HH."""
+    return db.query(IncidenciaMarcacion.id).join(Marcacion).filter(
+        Marcacion.fecha_hora_marcacion >= datetime.combine(fecha_desde, time.min),
+        Marcacion.fecha_hora_marcacion <= datetime.combine(fecha_hasta, time.max),
+        IncidenciaMarcacion.estado_resolucion == EstadoResolucionEnum.pendiente,
+    ).first() is not None
+
+
+def cerrar_periodo_asistencia(
+    db: Session,
+    anio: int,
+    mes: int,
+    id_cerrado_por: Optional[int] = None,
+) -> ResultadoCierrePeriodo:
+    """Recalcula todo el mes y lo marca como cerrado si no hay incidencias pendientes."""
+    fecha_desde, fecha_hasta = obtener_rango_mes(anio, mes)
+    periodo = get_periodo_asistencia(db, anio, mes)
+
+    if periodo and periodo.estado == EstadoPeriodoAsistenciaEnum.cerrado:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="El período ya se encuentra cerrado")
+
+    if hay_incidencias_pendientes_periodo(db, fecha_desde, fecha_hasta):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No se puede cerrar el período mientras existan incidencias pendientes de revisión",
+        )
+
+    if periodo is None:
+        periodo = PeriodoAsistencia(anio=anio, mes=mes)
+        db.add(periodo)
+        db.flush()
+
+    procesados = errores = skipped = 0
+    errores_lista: list[str] = []
+    fecha_actual = fecha_desde
+    while fecha_actual <= fecha_hasta:
+        resultado = procesar_asistencia_masiva(db, fecha_actual)
+        procesados += resultado.empleados_procesados
+        errores += resultado.empleados_con_error
+        skipped += resultado.empleados_skipped
+        errores_lista.extend(resultado.errores)
+        fecha_actual += timedelta(days=1)
+
+    periodo.estado = EstadoPeriodoAsistenciaEnum.cerrado
+    periodo.cerrado_en = datetime.now()
+    periodo.id_cerrado_por = id_cerrado_por
+    db.commit()
+    db.refresh(periodo)
+
+    return ResultadoCierrePeriodo(
+        anio=anio,
+        mes=mes,
+        fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta,
+        estado=periodo.estado.value,
+        dias_procesados=(fecha_hasta - fecha_desde).days + 1,
+        empleados_procesados=procesados,
+        empleados_con_error=errores,
+        empleados_skipped=skipped,
+        errores=errores_lista,
+    )
+
+
+def reabrir_periodo_asistencia(db: Session, anio: int, mes: int) -> PeriodoAsistencia:
+    """Reabre un mes para permitir nuevas importaciones o correcciones auditables."""
+    periodo = get_periodo_asistencia(db, anio, mes)
+    if periodo is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="El período no existe")
+
+    periodo.estado = EstadoPeriodoAsistenciaEnum.en_revision
+    periodo.cerrado_en = None
+    periodo.id_cerrado_por = None
+    db.commit()
+    db.refresh(periodo)
+    return periodo
 
 
 # ============================================================

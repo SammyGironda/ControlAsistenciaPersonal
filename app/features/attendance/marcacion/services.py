@@ -352,9 +352,6 @@ def update_incidencia(db: Session, incidencia_id: int, data: IncidenciaMarcacion
     db.commit()
     db.refresh(incidencia)
 
-    if data.estado_resolucion == EstadoResolucionEnum.resuelto.value and incidencia.marcacion:
-        _recalcular_asistencia_dia(db, incidencia.marcacion.id_empleado, incidencia.marcacion.fecha_hora_marcacion.date())
-
     return incidencia
 
 
@@ -492,6 +489,15 @@ def procesar_archivo_excel(
                     filas_con_error += 1
                     continue
 
+                periodo = asistencia_services.get_periodo_asistencia(db, fecha.year, fecha.month)
+                if periodo and periodo.estado.value == "cerrado":
+                    errores.append({
+                        "fila": idx + 2,
+                        "error": f"El período {fecha.year}-{fecha.month:02d} está cerrado. Reábralo antes de importar marcaciones.",
+                    })
+                    filas_con_error += 1
+                    continue
+
                 # Crear marcación de ENTRADA
                 if hora_entrada and hora_entrada.lower() != 'nan':
                     try:
@@ -592,14 +598,6 @@ def procesar_archivo_excel(
                 logger.warning(
                     f"Error detectando incidencias para empleado {id_empleado} en {fecha}: {str(e)}"
                 )
-
-        # Calcular asistencia diaria para los empleados-fechas procesados
-        for id_empleado, fecha in empleados_fechas_procesadas:
-            try:
-                asistencia_services.calcular_asistencia_dia(db, id_empleado, fecha)
-            except Exception as e:
-                db.rollback()
-                logger.warning(f"Error calculando asistencia para empleado {id_empleado} en {fecha}: {str(e)}")
 
         # Actualizar archivo: completado si no hay errores, error si los hay
         estado_final = "completado" if filas_con_error == 0 else "error"

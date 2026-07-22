@@ -6,7 +6,7 @@ Worker diario ejecuta a las 23:59 para procesar el día completo.
 
 from datetime import date, datetime
 from typing import Optional, TYPE_CHECKING
-from sqlalchemy import String, Integer, BigInteger, ForeignKey, Boolean, Text, Date, Numeric, Index, UniqueConstraint
+from sqlalchemy import String, Integer, BigInteger, ForeignKey, Boolean, Text, Date, Numeric, Index, UniqueConstraint, Enum as SQLEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 import enum
 
@@ -38,6 +38,34 @@ class EstadoDiaEnum(str, enum.Enum):
     presente_exento = "presente_exento"
     licencia_medica = "licencia_medica"
     descanso = "descanso"
+
+
+class EstadoPeriodoAsistenciaEnum(str, enum.Enum):
+    """Estados del ciclo mensual de asistencia."""
+    en_revision = "en_revision"
+    cerrado = "cerrado"
+
+
+class PeriodoAsistencia(Base):
+    """Controla el cierre explícito de un período mensual de asistencia."""
+    __tablename__ = "periodo_asistencia"
+    __table_args__ = (
+        UniqueConstraint("anio", "mes", name="uq_periodo_asistencia_anio_mes"),
+        {"schema": "rrhh"},
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    anio: Mapped[int] = mapped_column(Integer, nullable=False)
+    mes: Mapped[int] = mapped_column(Integer, nullable=False)
+    estado: Mapped[EstadoPeriodoAsistenciaEnum] = mapped_column(
+        SQLEnum(EstadoPeriodoAsistenciaEnum, name="estado_periodo_asistencia_enum", create_constraint=True, native_enum=False, length=20),
+        default=EstadoPeriodoAsistenciaEnum.en_revision,
+        nullable=False,
+    )
+    cerrado_en: Mapped[Optional[datetime]] = mapped_column(nullable=True)
+    id_cerrado_por: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("rrhh.empleado.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(nullable=False, default=datetime.now)
+    updated_at: Mapped[datetime] = mapped_column(nullable=False, default=datetime.now, onupdate=datetime.now)
 
 
 class AsistenciaDiaria(Base):
