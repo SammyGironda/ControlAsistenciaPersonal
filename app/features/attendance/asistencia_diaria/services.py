@@ -110,6 +110,84 @@ def create_asistencia(db: Session, data: AsistenciaDiariaCreate) -> AsistenciaDi
     return asistencia
 
 
+def registrar_asistencia_importada_sin_horario(
+    db: Session,
+    id_empleado: int,
+    fecha: date,
+) -> AsistenciaDiaria:
+    """Registra asistencia desde marcaciones cuando no hay horario asignado.
+
+    Es el equivalente de crear manualmente la asistencia mediante
+    ``POST /asistencia/``, usando las marcaciones ya importadas. No asigna
+    retraso ni horas extra porque, sin horario vigente, no existe una base
+    confiable para calcularlas. Si la fecha ya tiene asistencia, la actualiza
+    para que una reimportación no produzca un conflicto de unicidad.
+    """
+    marcaciones = _obtener_marcaciones_dia(db, id_empleado, fecha)
+    marcacion_entrada = next(
+        (m for m in marcaciones if m.tipo_marcacion == TipoMarcacionEnum.ENTRADA),
+        None,
+    )
+    marcacion_salida = next(
+        (m for m in marcaciones if m.tipo_marcacion == TipoMarcacionEnum.SALIDA),
+        None,
+    )
+
+    marcacion_completa = (
+        marcacion_entrada is not None
+        and marcacion_salida is not None
+        and marcacion_salida.fecha_hora_marcacion >= marcacion_entrada.fecha_hora_marcacion
+    )
+    minutos_trabajados = (
+        _calcular_minutos_trabajados(
+            marcacion_entrada.fecha_hora_marcacion,
+            marcacion_salida.fecha_hora_marcacion,
+        )
+        if marcacion_completa
+        else 0
+    )
+    tipo_dia = EstadoDiaEnum.presente if marcacion_completa else EstadoDiaEnum.ausente
+    observacion = (
+        "Asistencia generada desde importación Excel sin horario asignado"
+        if marcacion_completa
+        else "Marcación incompleta importada desde Excel sin horario asignado"
+    )
+
+    existente = db.query(AsistenciaDiaria).filter(
+        and_(
+            AsistenciaDiaria.id_empleado == id_empleado,
+            AsistenciaDiaria.fecha == fecha,
+        )
+    ).first()
+    if existente:
+        return _crear_o_actualizar_asistencia(
+            db=db,
+            id_empleado=id_empleado,
+            fecha=fecha,
+            id_marcacion_entrada=marcacion_entrada.id if marcacion_entrada else None,
+            id_marcacion_salida=marcacion_salida.id if marcacion_salida else None,
+            tipo_dia=tipo_dia,
+            minutos_retraso=0,
+            minutos_trabajados=minutos_trabajados,
+            observacion=observacion,
+        )
+
+    return create_asistencia(
+        db,
+        AsistenciaDiariaCreate(
+            id_empleado=id_empleado,
+            fecha=fecha,
+            id_marcacion_entrada=marcacion_entrada.id if marcacion_entrada else None,
+            id_marcacion_salida=marcacion_salida.id if marcacion_salida else None,
+            tipo_dia=tipo_dia.value,
+            minutos_retraso=0,
+            minutos_trabajados=minutos_trabajados,
+            horas_extra=0,
+            observacion=observacion,
+        ),
+    )
+
+
 def update_asistencia(db: Session, asistencia_id: int, data: AsistenciaDiariaUpdate) -> AsistenciaDiaria:
     """Actualizar registro de asistencia existente."""
     asistencia = get_asistencia_by_id(db, asistencia_id)

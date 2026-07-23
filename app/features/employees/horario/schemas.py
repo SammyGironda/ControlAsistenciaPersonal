@@ -187,11 +187,15 @@ class AsignacionHorarioBase(BaseModel):
     @field_validator('fecha_fin')
     @classmethod
     def validar_fecha_fin(cls, v: Optional[date], info) -> Optional[date]:
-        """Validar que fecha_fin sea posterior a fecha_inicio."""
+        """Validar que fecha_fin no sea anterior a fecha_inicio.
+
+        Una asignación puede tener vigencia de un solo día, por ejemplo
+        cuando coincide con la fecha final de un contrato a plazo fijo.
+        """
         if v is not None and 'fecha_inicio' in info.data:
             fecha_inicio = info.data['fecha_inicio']
-            if v <= fecha_inicio:
-                raise ValueError('La fecha fin debe ser posterior a la fecha de inicio')
+            if v < fecha_inicio:
+                raise ValueError('La fecha fin no puede ser anterior a la fecha de inicio')
         return v
 
 

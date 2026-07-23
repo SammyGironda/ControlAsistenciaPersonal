@@ -223,6 +223,8 @@ class UploadExcelResponse(BaseModel):
     filas_procesadas: Optional[int] = None
     filas_con_error: Optional[int] = None
     errores: Optional[list] = None
+    asistencias_calculadas: int = 0
+    errores_asistencia: Optional[list] = None
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -234,10 +236,14 @@ class UploadExcelResponse(BaseModel):
                 "total_filas": 500,
                 "filas_procesadas": 495,
                 "filas_con_error": 5,
+                "asistencias_calculadas": 495,
                 "errores": [
                     {"fila": 23, "error": "CI 1234567-LP no encontrado"},
                     {"fila": 45, "error": "Fecha inválida"}
-                ]
+                ],
+                "errores_asistencia": [
+                    {"empleado_id": 8, "fecha": "2026-01-15", "error": "Empleado 8 no tiene horario asignado"}
+                ],
             }
         }
     )

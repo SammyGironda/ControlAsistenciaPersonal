@@ -215,12 +215,30 @@ def _obtener_horario_empleado(db: Session, id_empleado: int, fecha: date):
     return asignacion.horario if asignacion else None
 
 
-def _recalcular_asistencia_dia(db: Session, id_empleado: int, fecha: date):
-    """Recalcula la asistencia diaria para un empleado en una fecha."""
+def _recalcular_asistencia_dia(db: Session, id_empleado: int, fecha: date) -> tuple[bool, Optional[str]]:
+    """Recalcula la asistencia diaria para un empleado en una fecha.
+
+    La importación de marcaciones no debe perderse si un empleado no tiene
+    horario asignado. Por eso se informa el error al flujo que invoca esta
+    función y se continúa con los demás empleados.
+    """
     try:
         asistencia_services.calcular_asistencia_dia(db, id_empleado, fecha)
-    except HTTPException:
-        return
+        return True, None
+    except HTTPException as exc:
+        if "no tiene horario asignado" in str(exc.detail).lower():
+            try:
+                asistencia_services.registrar_asistencia_importada_sin_horario(
+                    db, id_empleado, fecha
+                )
+                return True, "Asistencia registrada sin horario asignado"
+            except Exception as fallback_exc:
+                db.rollback()
+                return False, str(fallback_exc)
+        return False, exc.detail
+    except Exception as exc:
+        db.rollback()
+        return False, str(exc)
 
 
 def _aplicar_resolucion_incidencia(db: Session, incidencia: IncidenciaMarcacion, data: IncidenciaMarcacionUpdate):
@@ -507,6 +525,8 @@ def procesar_archivo_excel(
         filas_con_error = 0
         errores = []
         empleados_fechas_procesadas = set()  # Para rastrear qué calcular después
+        asistencias_calculadas = 0
+        errores_asistencia = []
 
         # Procesar cada fila
         for idx, row in df.iterrows():
@@ -663,6 +683,24 @@ def procesar_archivo_excel(
                     f"Error detectando incidencias para empleado {id_empleado} en {fecha}: {str(e)}"
                 )
 
+        # Recalcular asistencia diaria una vez que todas las marcaciones e
+        # incidencias del archivo ya están persistidas. Equivale a ejecutar el
+        # procesamiento/recalculo diario para cada empleado y fecha importados.
+        for id_empleado, fecha in empleados_fechas_procesadas:
+            calculada, detalle_error = _recalcular_asistencia_dia(db, id_empleado, fecha)
+            if calculada:
+                asistencias_calculadas += 1
+            else:
+                error_asistencia = {
+                    "empleado_id": id_empleado,
+                    "fecha": str(fecha),
+                    "error": detalle_error,
+                }
+                errores_asistencia.append(error_asistencia)
+                logger.warning(
+                    f"No se pudo recalcular asistencia para empleado {id_empleado} en {fecha}: {detalle_error}"
+                )
+
         # Actualizar archivo: completado si no hay errores, error si los hay
         estado_final = "completado" if filas_con_error == 0 else "error"
         update_archivo(db, archivo.id, ArchivoExcelUpdate(
@@ -681,7 +719,9 @@ def procesar_archivo_excel(
             "total_filas": total_filas,
             "filas_procesadas": filas_procesadas,
             "filas_con_error": filas_con_error,
-            "errores": errores if errores else None
+            "errores": errores if errores else None,
+            "asistencias_calculadas": asistencias_calculadas,
+            "errores_asistencia": errores_asistencia if errores_asistencia else None,
         }
 
     except HTTPException:

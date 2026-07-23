@@ -48,7 +48,8 @@ async def upload_excel_marcaciones(
     - Columna 3: Hora Entrada (ej: 08:00)
     - Columna 4: Hora Salida (ej: 18:00)
 
-    Retorna estadísticas de procesamiento y log de errores.
+    También recalcula la asistencia diaria de cada empleado y fecha importados.
+    Retorna estadísticas de procesamiento, incidencias y resultados de asistencia.
     """
     # Validar extensión
     if not file.filename.endswith(('.xls', '.xlsx')):
