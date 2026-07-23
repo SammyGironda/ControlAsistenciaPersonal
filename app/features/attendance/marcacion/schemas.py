@@ -3,7 +3,7 @@ Schemas Pydantic para Marcaciones, Archivos Excel e Incidencias.
 """
 
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 from pydantic import BaseModel, Field, ConfigDict
 from decimal import Decimal
 
@@ -144,6 +144,16 @@ class IncidenciaMarcacionCreate(IncidenciaMarcacionBase):
     )
 
 
+class MarcacionIncidenciaDetalle(BaseModel):
+    """Marcación involucrada en una incidencia, lista para revisión por RRHH."""
+    id: int
+    id_empleado: int
+    fecha_hora_marcacion: datetime
+    hora: str
+    tipo_marcacion: str
+    origen_dato: str
+
+
 class IncidenciaMarcacionResponse(IncidenciaMarcacionBase):
     """Schema de respuesta de incidencia."""
     id: int
@@ -153,6 +163,7 @@ class IncidenciaMarcacionResponse(IncidenciaMarcacionBase):
     fecha_resolucion: Optional[datetime]
     created_at: datetime
     updated_at: datetime
+    marcaciones: List[MarcacionIncidenciaDetalle] = Field(default_factory=list)
 
     model_config = ConfigDict(
         from_attributes=True,

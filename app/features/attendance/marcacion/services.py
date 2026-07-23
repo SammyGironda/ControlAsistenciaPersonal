@@ -324,11 +324,75 @@ def _aplicar_resolucion_incidencia(db: Session, incidencia: IncidenciaMarcacion,
             return
 
 
-def get_incidencias_pendientes(db: Session, skip: int = 0, limit: int = 100) -> List[IncidenciaMarcacion]:
-    """Obtiene incidencias pendientes de resolución."""
-    return db.query(IncidenciaMarcacion).filter(
+def _serializar_marcacion_incidencia(marcacion: Marcacion) -> Dict[str, Any]:
+    """Expone el dato mínimo que RRHH necesita para revisar una huella."""
+    return {
+        "id": marcacion.id,
+        "id_empleado": marcacion.id_empleado,
+        "fecha_hora_marcacion": marcacion.fecha_hora_marcacion,
+        "hora": marcacion.fecha_hora_marcacion.strftime("%H:%M"),
+        "tipo_marcacion": marcacion.tipo_marcacion.value,
+        "origen_dato": marcacion.origen_dato.value,
+    }
+
+
+def _obtener_marcaciones_incidencia(
+    db: Session,
+    incidencia: IncidenciaMarcacion,
+) -> List[Marcacion]:
+    """Obtiene la huella afectada y, si aplica, sus duplicados de la misma ventana."""
+    marcacion = incidencia.marcacion
+    if not marcacion:
+        return []
+
+    if incidencia.tipo_incidencia not in {
+        TipoIncidenciaEnum.duplicada,
+        TipoIncidenciaEnum.inconsistente,
+    }:
+        return [marcacion]
+
+    delta = timedelta(minutes=5)
+    return db.query(Marcacion).filter(
+        and_(
+            Marcacion.id_empleado == marcacion.id_empleado,
+            Marcacion.tipo_marcacion == marcacion.tipo_marcacion,
+            Marcacion.fecha_hora_marcacion.between(
+                marcacion.fecha_hora_marcacion - delta,
+                marcacion.fecha_hora_marcacion + delta,
+            ),
+        )
+    ).order_by(Marcacion.fecha_hora_marcacion).all()
+
+
+def get_incidencias_pendientes(db: Session, skip: int = 0, limit: int = 100) -> List[Dict[str, Any]]:
+    """Obtiene incidencias pendientes con las horas reales de las huellas involucradas."""
+    incidencias = db.query(IncidenciaMarcacion).options(
+        joinedload(IncidenciaMarcacion.marcacion)
+    ).filter(
         IncidenciaMarcacion.estado_resolucion == EstadoResolucionEnum.pendiente
-    ).offset(skip).limit(limit).all()
+    ).order_by(IncidenciaMarcacion.created_at.desc()).offset(skip).limit(limit).all()
+
+    resultado = []
+    for incidencia in incidencias:
+        data = {
+            "id": incidencia.id,
+            "id_marcacion": incidencia.id_marcacion,
+            "tipo_incidencia": incidencia.tipo_incidencia.value,
+            "estado_resolucion": incidencia.estado_resolucion.value,
+            "evidencia_url": incidencia.evidencia_url,
+            "descripcion_resolucion": incidencia.descripcion_resolucion,
+            "id_resuelto_por": incidencia.id_resuelto_por,
+            "fecha_resolucion": incidencia.fecha_resolucion,
+            "created_at": incidencia.created_at,
+            "updated_at": incidencia.updated_at,
+            "marcaciones": [
+                _serializar_marcacion_incidencia(marcacion)
+                for marcacion in _obtener_marcaciones_incidencia(db, incidencia)
+            ],
+        }
+        resultado.append(data)
+
+    return resultado
 
 
 def update_incidencia(db: Session, incidencia_id: int, data: IncidenciaMarcacionUpdate) -> IncidenciaMarcacion:
