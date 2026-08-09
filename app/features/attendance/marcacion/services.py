@@ -23,6 +23,7 @@ from app.features.attendance.marcacion.schemas import (
     IncidenciaMarcacionCreate, IncidenciaMarcacionUpdate
 )
 from app.features.employees.empleado.models import Empleado
+from app.features.employees.cargo.models import Cargo
 from app.features.auth.usuario.models import Usuario
 from app.features.employees.horario.models import AsignacionHorario
 from app.features.attendance.asistencia_diaria import services as asistencia_services
@@ -239,6 +240,74 @@ def _recalcular_asistencia_dia(db: Session, id_empleado: int, fecha: date) -> tu
     except Exception as exc:
         db.rollback()
         return False, str(exc)
+
+
+def _obtener_empleados_confianza_activos(db: Session) -> list[Empleado]:
+    """Empleados activos con cargo de confianza (exentos de marcar huella)."""
+    return db.query(Empleado).join(Cargo).filter(
+        Cargo.es_cargo_confianza == True,
+        Empleado.estado == "activo",
+    ).all()
+
+
+def _generar_asistencia_confianza(
+    db: Session,
+    fecha_desde: Optional[date],
+    fecha_hasta: Optional[date],
+    empleados_fechas_procesadas: set,
+) -> tuple[int, list]:
+    """Genera `presente_exento` para empleados de cargo de confianza en [fecha_desde, fecha_hasta].
+
+    Estos empleados están exentos de marcar huella, por lo que nunca aparecen
+    como marcación en el Excel ni en `empleados_fechas_procesadas` — sin este
+    paso nunca se les generaría `asistencia_diaria` (ver CLAUDE.md, sección
+    "Decisión arquitectónica activa"). Reutiliza `_recalcular_asistencia_dia`
+    (mismo wrapper con `db.rollback()` por fallo que usa el resto del pipeline).
+
+    Retorna (empleados_procesados, errores) — `errores` con la misma forma
+    ({"empleado_id", "fecha", "error"}) que `errores_asistencia` en
+    `procesar_archivo_excel`.
+    """
+    procesados = 0
+    errores: list = []
+
+    if not fecha_desde or not fecha_hasta:
+        return procesados, errores
+
+    empleados_confianza = _obtener_empleados_confianza_activos(db)
+    if not empleados_confianza:
+        return procesados, errores
+
+    dia = fecha_desde
+    while dia <= fecha_hasta:
+        periodo_dia = asistencia_services.get_periodo_asistencia(db, dia.year, dia.month)
+        periodo_cerrado = periodo_dia is not None and periodo_dia.estado.value == "cerrado"
+
+        for empleado_confianza in empleados_confianza:
+            if (empleado_confianza.id, dia) in empleados_fechas_procesadas:
+                continue  # ya recalculado en el loop principal del Excel
+
+            if periodo_cerrado:
+                errores.append({
+                    "empleado_id": empleado_confianza.id,
+                    "fecha": str(dia),
+                    "error": f"El período {dia.year}-{dia.month:02d} está cerrado. Reábralo antes de importar marcaciones.",
+                })
+                continue
+
+            calculada, detalle_error = _recalcular_asistencia_dia(db, empleado_confianza.id, dia)
+            if calculada:
+                procesados += 1
+            else:
+                errores.append({
+                    "empleado_id": empleado_confianza.id,
+                    "fecha": str(dia),
+                    "error": detalle_error,
+                })
+
+        dia += timedelta(days=1)
+
+    return procesados, errores
 
 
 def _aplicar_resolucion_incidencia(db: Session, incidencia: IncidenciaMarcacion, data: IncidenciaMarcacionUpdate):
@@ -525,6 +594,7 @@ def procesar_archivo_excel(
         filas_con_error = 0
         errores = []
         empleados_fechas_procesadas = set()  # Para rastrear qué calcular después
+        fechas_detectadas = set()  # Rango real del archivo, para empleados de confianza (ver abajo)
         asistencias_calculadas = 0
         errores_asistencia = []
 
@@ -572,6 +642,10 @@ def procesar_archivo_excel(
                     })
                     filas_con_error += 1
                     continue
+
+                # Rango real del archivo (independiente de si la fila termina en error),
+                # usado más abajo para generar presente_exento a empleados de confianza.
+                fechas_detectadas.add(fecha)
 
                 periodo = asistencia_services.get_periodo_asistencia(db, fecha.year, fecha.month)
                 if periodo and periodo.estado.value == "cerrado":
@@ -701,6 +775,18 @@ def procesar_archivo_excel(
                     f"No se pudo recalcular asistencia para empleado {id_empleado} en {fecha}: {detalle_error}"
                 )
 
+        # Generar presente_exento para empleados de cargo de confianza en el rango
+        # de fechas del archivo. Estos empleados están exentos de marcar huella,
+        # por lo que nunca aparecen en `empleados_fechas_procesadas` — sin este
+        # paso nunca se les generaría asistencia_diaria (ver CLAUDE.md, sección
+        # "Decisión arquitectónica activa").
+        fecha_desde = min(fechas_detectadas) if fechas_detectadas else None
+        fecha_hasta = max(fechas_detectadas) if fechas_detectadas else None
+        empleados_confianza_procesados, errores_confianza = _generar_asistencia_confianza(
+            db, fecha_desde, fecha_hasta, empleados_fechas_procesadas
+        )
+        errores_asistencia.extend(errores_confianza)
+
         # Actualizar archivo: completado si no hay errores, error si los hay
         estado_final = "completado" if filas_con_error == 0 else "error"
         update_archivo(db, archivo.id, ArchivoExcelUpdate(
@@ -722,6 +808,9 @@ def procesar_archivo_excel(
             "errores": errores if errores else None,
             "asistencias_calculadas": asistencias_calculadas,
             "errores_asistencia": errores_asistencia if errores_asistencia else None,
+            "empleados_confianza_procesados": empleados_confianza_procesados,
+            "fecha_desde": str(fecha_desde) if fecha_desde else None,
+            "fecha_hasta": str(fecha_hasta) if fecha_hasta else None,
         }
 
     except HTTPException:

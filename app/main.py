@@ -161,38 +161,17 @@ app.include_router(horario_personalizado_router, prefix=settings.API_PREFIX)
 
 @app.on_event("startup")
 async def startup_event():
+    """El scheduler diario fue retirado: no hay tareas en background al arrancar."""
     return
-    """Iniciar worker de asistencia diaria al arrancar la aplicación."""
-    import logging
-    logger = logging.getLogger(__name__)
-    logger.info("🚀 Iniciando aplicación RRHH Bolivia MVP...")
-    
-    # Iniciar scheduler de asistencia diaria
-    try:
-        start_scheduler()
-        logger.info("✅ Worker de asistencia diaria iniciado correctamente")
-    except Exception as e:
-        logger.error(f"❌ Error al iniciar worker: {str(e)}", exc_info=True)
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
+    """El scheduler diario fue retirado: no hay tareas en background que detener."""
     return
-    """Detener worker al apagar la aplicación."""
-    import logging
-    logger = logging.getLogger(__name__)
-    logger.info("🛑 Deteniendo aplicación...")
-    
-    # Detener scheduler
-    try:
-        shutdown_scheduler()
-        logger.info("✅ Worker de asistencia diaria detenido correctamente")
-    except Exception as e:
-        logger.error(f"❌ Error al detener worker: {str(e)}", exc_info=True)
 
 
 @app.get("/worker/status", tags=["Worker"])
 def worker_status():
+    """El scheduler diario fue retirado; la asistencia se consolida al cerrar cada mes."""
     return {"running": False, "message": "Scheduler diario deshabilitado; use el cierre mensual."}
-    """Endpoint para verificar el estado del worker de asistencia."""
-    return get_scheduler_status()
