@@ -252,5 +252,9 @@ def resolver_incidencia(
     Resuelve una incidencia de marcación.
 
     Permite cambiar el estado, agregar evidencia y descripción de resolución.
+
+    **Evidencia obligatoria:** pasar a `estado_resolucion='resuelto'` requiere
+    `evidencia_url` (en este body o ya guardada en la incidencia). Sin ella la
+    petición falla con 400. Los estados 'pendiente' e 'ignorado' no la exigen.
     """
     return services.update_incidencia(db, incidencia_id, data)

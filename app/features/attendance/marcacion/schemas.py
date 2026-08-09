@@ -185,9 +185,19 @@ class IncidenciaMarcacionResponse(IncidenciaMarcacionBase):
 
 
 class IncidenciaMarcacionUpdate(BaseModel):
-    """Schema para resolver incidencia."""
+    """
+    Schema para resolver incidencia.
+
+    Para `estado_resolucion='resuelto'` se exige evidencia: `evidencia_url` en
+    este body, o una ya guardada previamente en la incidencia. Los estados
+    'pendiente' e 'ignorado' no la requieren.
+    """
     estado_resolucion: str = Field(..., pattern="^(pendiente|resuelto|ignorado)$")
-    evidencia_url: Optional[str] = Field(None, max_length=255)
+    evidencia_url: Optional[str] = Field(
+        None,
+        max_length=255,
+        description="Respaldo de la corrección. Obligatorio para resolver, salvo que la incidencia ya tenga uno."
+    )
     descripcion_resolucion: Optional[str] = Field(None, max_length=5000)
     id_resuelto_por: Optional[int] = Field(None, gt=0)
     accion_resolucion: Optional[str] = Field(None, max_length=50)

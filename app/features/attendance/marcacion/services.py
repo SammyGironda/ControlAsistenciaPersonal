@@ -489,8 +489,25 @@ def get_incidencias_pendientes(db: Session, skip: int = 0, limit: int = 100) -> 
     return resultado
 
 
+# Campos de IncidenciaMarcacionUpdate que sí son columnas de la tabla. El resto
+# (accion_resolucion, hora_correccion, tipo_marcacion_correccion) son
+# instrucciones para _aplicar_resolucion_incidencia, no atributos a persistir.
+_CAMPOS_PERSISTIBLES_INCIDENCIA = frozenset({
+    "estado_resolucion",
+    "evidencia_url",
+    "descripcion_resolucion",
+    "id_resuelto_por",
+})
+
+
 def update_incidencia(db: Session, incidencia_id: int, data: IncidenciaMarcacionUpdate) -> IncidenciaMarcacion:
-    """Actualiza el estado de una incidencia."""
+    """
+    Actualiza el estado de una incidencia.
+
+    Para pasar a 'resuelto' se exige evidencia: o viene en el body, o ya estaba
+    guardada en la incidencia. Cerrar una incidencia es afirmar que la marcación
+    fue corregida, y esa afirmación tiene que quedar respaldada.
+    """
     incidencia = db.query(IncidenciaMarcacion).filter(IncidenciaMarcacion.id == incidencia_id).first()
     if not incidencia:
         raise HTTPException(
@@ -498,8 +515,23 @@ def update_incidencia(db: Session, incidencia_id: int, data: IncidenciaMarcacion
             detail=f"No existe la incidencia con ID {incidencia_id}"
         )
 
+    # Validar ANTES de escribir nada: si la validación fallara después del
+    # setattr, la incidencia quedaría parcialmente mutada en la sesión.
+    if data.estado_resolucion == EstadoResolucionEnum.resuelto.value:
+        evidencia_efectiva = data.evidencia_url if data.evidencia_url is not None else incidencia.evidencia_url
+
+        if not evidencia_efectiva or not evidencia_efectiva.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "No se puede resolver una incidencia sin evidencia_url. "
+                    "Adjunte el respaldo de la corrección."
+                )
+            )
+
     for key, value in data.model_dump(exclude_unset=True).items():
-        setattr(incidencia, key, value)
+        if key in _CAMPOS_PERSISTIBLES_INCIDENCIA:
+            setattr(incidencia, key, value)
 
     if data.estado_resolucion == EstadoResolucionEnum.resuelto.value and not incidencia.fecha_resolucion:
         incidencia.fecha_resolucion = datetime.now()
