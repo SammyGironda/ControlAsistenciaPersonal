@@ -285,10 +285,15 @@ def aplicar_decreto_anual(
        - Calcula el nuevo salario
        - Crea un ajuste_salarial con motivo='decreto_anual'
     3. El trigger trg_sync_salario_empleado actualiza empleado.salario_base automáticamente
-    
+
+    Cada empleado se confirma con su propio commit, de modo que un fallo aislado
+    (por ejemplo, un salario fuera de todos los tramos del decreto) no descarta
+    los ajustes de los empleados ya procesados: se registra en `errores` y el
+    proceso continúa con el siguiente.
+
     Retorna:
     - empleados_procesados: Total de empleados evaluados
-    - ajustes_creados: Total de ajustes creados exitosamente
+    - ajustes_creados: Total de ajustes efectivamente confirmados en base de datos
     - errores: Lista de errores por empleado
     """
     # Validar que el decreto existe
@@ -307,7 +312,9 @@ def aplicar_decreto_anual(
             detail=f"No existe el empleado aprobador con ID {id_aprobado_por}"
         )
     
-    # Obtener empleados con contrato indefinido activo
+    # Obtener empleados con contrato indefinido activo.
+    # `.distinct()` evita que un empleado con más de un contrato indefinido
+    # activo aparezca repetido y reciba ajustes duplicados.
     empleados_con_contrato_indefinido = db.query(Empleado).join(
         Contrato, Contrato.id_empleado == Empleado.id
     ).filter(
@@ -316,13 +323,19 @@ def aplicar_decreto_anual(
             Contrato.tipo_contrato == TipoContratoEnum.indefinido,
             Contrato.estado == EstadoContratoEnum.activo
         )
-    ).all()
-    
+    ).distinct().all()
+
     empleados_procesados = len(empleados_con_contrato_indefinido)
     ajustes_creados = 0
     errores = []
-    
+
     for empleado in empleados_con_contrato_indefinido:
+        # Se capturan antes del try: tras un rollback los objetos de la sesión
+        # quedan expirados y volver a leerlos para armar el mensaje de error
+        # dispararía un SELECT sobre una sesión que acaba de fallar.
+        empleado_id = empleado.id
+        empleado_nombre = empleado.nombre_completo
+
         try:
             # Obtener contrato activo
             contrato = db.query(Contrato).filter(
@@ -334,7 +347,7 @@ def aplicar_decreto_anual(
             ).first()
             
             if not contrato:
-                errores.append(f"Empleado ID {empleado.id}: No se encontró contrato indefinido activo")
+                errores.append(f"Empleado ID {empleado_id}: No se encontró contrato indefinido activo")
                 continue
             
             # Calcular porcentaje de incremento
@@ -376,16 +389,20 @@ def aplicar_decreto_anual(
                 observacion=f"Aplicación {decreto.referencia_decreto} - Incremento {porcentaje}%"
             )
             
+            # Commit por empleado: cada ajuste es independiente. Antes había un
+            # único commit al final del loop, así que el rollback del except
+            # descartaba TODOS los ajustes acumulados de los empleados
+            # anteriores — un fallo en el empleado 500 borraba los 499 previos.
             db.add(ajuste)
+            db.commit()
             ajustes_creados += 1
-            
+
         except Exception as e:
-            errores.append(f"Empleado ID {empleado.id} ({empleado.nombre_completo}): {str(e)}")
+            # Ahora el rollback solo descarta el ajuste del empleado en curso.
             db.rollback()
+            errores.append(f"Empleado ID {empleado_id} ({empleado_nombre}): {str(e)}")
             continue
-    
-    db.commit()
-    
+
     return {
         "decreto_id": decreto_id,
         "empleados_procesados": empleados_procesados,
