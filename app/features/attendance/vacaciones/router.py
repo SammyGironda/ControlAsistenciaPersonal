@@ -334,6 +334,11 @@ def cambiar_estado_detalle(
     - Al aprobar se valida que haya horas disponibles
     - Al tomar se descuentan las horas del saldo
     - Al cancelar se recalcula el saldo si estaba aprobado
+
+    **Licencia por accidente:** un detalle con `tipo_vacacion='licencia_accidente'`
+    NO descuenta saldo vacacional al pasar a 'tomado'. Para que lo descuente hay
+    que enviar `cubrir_con_saldo_vacacional=true`, confirmando que RRHH y el
+    empleado acordaron cubrir la licencia con el saldo de vacaciones.
     """
     return services.cambiar_estado_detalle(db, id, data)
 

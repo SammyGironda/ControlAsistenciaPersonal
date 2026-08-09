@@ -108,6 +108,16 @@ class CambiarEstadoRequest(BaseModel):
     nuevo_estado: EstadoDetalleVacacionEnum = Field(..., description="Nuevo estado")
     id_aprobado_por: Optional[int] = Field(None, description="ID del aprobador (requerido para aprobar/rechazar)")
     observacion: Optional[str] = Field(None, max_length=500, description="Observaciones del cambio")
+    cubrir_con_saldo_vacacional: bool = Field(
+        False,
+        description=(
+            "Solo aplica a tipo_vacacion='licencia_accidente' al pasar a 'tomado'. "
+            "Debe enviarse en true para confirmar que RRHH y el empleado acordaron "
+            "cubrir la licencia con el saldo vacacional; en ese caso se descuenta "
+            "igual que una vacación con goce de haber. Con el valor por defecto "
+            "(false) la licencia no consume saldo."
+        ),
+    )
 
 
 class DetalleVacacionResponse(DetalleVacacionBase):

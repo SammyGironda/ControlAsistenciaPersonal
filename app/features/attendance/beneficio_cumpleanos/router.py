@@ -124,11 +124,14 @@ def transferir_vacacion(
     db: Session = Depends(get_db)
 ):
     """
-    Marca un beneficio como transferido a vacaciones.
+    Transfiere el beneficio de cumpleaños no utilizado al saldo vacacional.
 
-    **Este endpoint es llamado automáticamente por el worker de fin de año.**
+    Acredita 4h a `horas_correspondientes` y `horas_goce_haber` de la vacación de
+    la gestión del beneficio y marca `transferido_a_vacacion = True`, todo en la
+    misma transacción. Si el empleado aún no tiene registro de vacación para esa
+    gestión, se crea con la base LGT más las 4h.
 
-    El worker debe sumar 4h a vacacion.horas_goce_haber antes de llamar este endpoint.
+    Se usa al cierre de gestión, para los beneficios con `fue_utilizado = false`.
     """
     return services.transferir_a_vacacion(db, id)
 

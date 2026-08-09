@@ -420,6 +420,41 @@ def eliminar_detalle_vacacion(db: Session, id: int) -> None:
     db.commit()
 
 
+def _resolver_campo_saldo(
+    detalle: DetalleVacacion,
+    cubrir_con_saldo_vacacional: bool
+) -> Optional[str]:
+    """
+    Indica de qué campo de `vacacion` se descuentan las horas de un detalle al
+    pasar a 'tomado', o None si el detalle no debe consumir saldo.
+
+    `licencia_accidente` solo descuenta cuando RRHH y el empleado acordaron
+    explícitamente cubrirla con el saldo vacacional. Sin esa confirmación la
+    licencia se registra pero no consume vacaciones: antes se descontaba
+    siempre, de forma automática y silenciosa.
+    """
+    if detalle.tipo_vacacion == TipoVacacionEnum.goce_de_haber:
+        return "horas_goce_haber"
+
+    if detalle.tipo_vacacion == TipoVacacionEnum.sin_goce_de_haber:
+        return "horas_sin_goce_haber"
+
+    if detalle.tipo_vacacion == TipoVacacionEnum.licencia_accidente:
+        return "horas_goce_haber" if cubrir_con_saldo_vacacional else None
+
+    return None
+
+
+def _anexar_observacion(detalle: DetalleVacacion, estado: str, texto: str) -> None:
+    """Agrega una línea a la observación del detalle, preservando el historial."""
+    entrada = f"[{estado}] {texto}"
+
+    if detalle.observacion:
+        detalle.observacion += f"\n---\n{entrada}"
+    else:
+        detalle.observacion = entrada
+
+
 def cambiar_estado_detalle(
     db: Session,
     id: int,
@@ -437,7 +472,9 @@ def cambiar_estado_detalle(
 
     Lógica de negocio:
     1. Al cambiar a 'aprobado': valida saldo disponible
-    2. Al cambiar a 'tomado': descuenta horas de vacacion.horas_tomadas y del saldo correspondiente
+    2. Al cambiar a 'tomado': descuenta horas de vacacion.horas_tomadas y del
+       saldo correspondiente, SALVO que sea una licencia por accidente sin
+       `cubrir_con_saldo_vacacional=true` (ver `_resolver_campo_saldo`)
     3. Al cambiar a 'rechazado' o 'cancelado': libera la reserva
     """
     detalle = obtener_detalle_vacacion(db, id)
@@ -491,30 +528,35 @@ def cambiar_estado_detalle(
             )
 
     # Lógica especial al cambiar a 'tomado'
+    nota_automatica = None
+
     if nuevo_estado == EstadoDetalleVacacionEnum.tomado:
-        # Incrementar horas_tomadas
-        vacacion.horas_tomadas += detalle.horas_habiles
+        campo_saldo = _resolver_campo_saldo(detalle, data.cubrir_con_saldo_vacacional)
 
-        # Descontar del saldo correspondiente según tipo_vacacion
-        if detalle.tipo_vacacion == TipoVacacionEnum.goce_de_haber:
-            vacacion.horas_goce_haber -= detalle.horas_habiles
-        elif detalle.tipo_vacacion == TipoVacacionEnum.sin_goce_de_haber:
-            vacacion.horas_sin_goce_haber -= detalle.horas_habiles
-        # Para licencia_accidente, también descuenta de goce_haber
-        elif detalle.tipo_vacacion == TipoVacacionEnum.licencia_accidente:
-            vacacion.horas_goce_haber -= detalle.horas_habiles
+        if campo_saldo is None:
+            # licencia_accidente sin confirmación explícita: la licencia por
+            # accidente NO es una vacación, así que no consume saldo. Se deja
+            # traza en la observación del detalle para que quede auditable.
+            nota_automatica = (
+                "Licencia por accidente registrada sin descontar saldo vacacional "
+                "(cubrir_con_saldo_vacacional=false)"
+            )
+        else:
+            # Validar ANTES de mutar: así un rechazo deja la vacación intacta,
+            # sin necesidad de rollback ni de saldos negativos transitorios.
+            saldo_actual = getattr(vacacion, campo_saldo)
 
-        # Validar que no queden saldos negativos
-        if vacacion.horas_goce_haber < 0:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Operación resultaría en horas_goce_haber negativas"
-            )
-        if vacacion.horas_sin_goce_haber < 0:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Operación resultaría en horas_sin_goce_haber negativas"
-            )
+            if detalle.horas_habiles > saldo_actual:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"Operación resultaría en {campo_saldo} negativas. "
+                        f"Horas solicitadas: {detalle.horas_habiles}, disponibles: {saldo_actual}"
+                    )
+                )
+
+            vacacion.horas_tomadas += detalle.horas_habiles
+            setattr(vacacion, campo_saldo, saldo_actual - detalle.horas_habiles)
 
     # Aplicar el cambio de estado
     detalle.estado = nuevo_estado
@@ -523,11 +565,11 @@ def cambiar_estado_detalle(
         detalle.id_aprobado_por = data.id_aprobado_por
 
     # Agregar observación
+    if nota_automatica:
+        _anexar_observacion(detalle, nuevo_estado, nota_automatica)
+
     if data.observacion:
-        if detalle.observacion:
-            detalle.observacion += f"\n---\n[{nuevo_estado}] {data.observacion}"
-        else:
-            detalle.observacion = f"[{nuevo_estado}] {data.observacion}"
+        _anexar_observacion(detalle, nuevo_estado, data.observacion)
 
     db.commit()
     db.refresh(detalle)

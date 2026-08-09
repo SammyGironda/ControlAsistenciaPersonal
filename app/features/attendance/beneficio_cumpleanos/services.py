@@ -3,8 +3,11 @@ Servicios de negocio para BeneficioCumpleanos.
 Gestión del beneficio de medio día por cumpleaños.
 """
 
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 from typing import List, Optional
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 
@@ -13,6 +16,12 @@ from app.features.attendance.beneficio_cumpleanos.schemas import (
     BeneficioCumpleanosCreate,
     BeneficioCumpleanosUpdate
 )
+from app.features.attendance.vacaciones.models import Vacacion
+from app.features.employees.empleado.models import Empleado
+
+
+# Horas que aporta el beneficio de cumpleaños al saldo vacacional (medio día).
+HORAS_BENEFICIO_CUMPLEANOS = Decimal("4.0")
 
 
 def crear_beneficio_cumpleanos(
@@ -131,15 +140,39 @@ def marcar_como_utilizado(
     return beneficio
 
 
+def _base_horas_vacacion_lgt(db: Session, fecha_ingreso: date, gestion: int) -> Decimal:
+    """
+    Calcula las horas de vacación que corresponden por LGT a un empleado al
+    cierre de una gestión, delegando en la función SQL `rrhh.fn_horas_vacacion_lgt`.
+
+    Es la misma fuente que usa el trigger `trg_compensacion_horas_extra_a_vacacion`
+    (migración 122bc6566cae) para crear una vacación inexistente, de modo que un
+    saldo creado por transferencia de cumpleaños y otro creado por compensación
+    de horas extra partan siempre de la misma base.
+    """
+    base = db.execute(
+        text("SELECT rrhh.fn_horas_vacacion_lgt(:ingreso, :corte)"),
+        {"ingreso": fecha_ingreso, "corte": date(gestion, 12, 31)},
+    ).scalar()
+
+    return Decimal(str(base)) if base is not None else Decimal("0.0")
+
+
 def transferir_a_vacacion(
     db: Session,
     id: int
 ) -> BeneficioCumpleanos:
     """
-    Marca un beneficio como transferido a vacaciones.
-    Esta función es llamada por el worker de fin de año.
+    Transfiere el beneficio de cumpleaños no utilizado al saldo vacacional.
 
-    El worker debe sumar 4h a vacacion.horas_goce_haber antes de llamar esta función.
+    Acredita 4h a `vacacion.horas_correspondientes` y `vacacion.horas_goce_haber`
+    de la gestión del beneficio Y marca `transferido_a_vacacion = True` en la
+    MISMA transacción: o se aplican ambos efectos, o ninguno. Antes esta función
+    solo levantaba el flag y las 4h quedaban delegadas a un worker de fin de año
+    que nunca existió, así que el beneficio se perdía.
+
+    Si el empleado todavía no tiene registro de vacación para esa gestión, se
+    crea con la base LGT (`rrhh.fn_horas_vacacion_lgt`) más las 4h.
     """
     beneficio = obtener_beneficio(db, id)
 
@@ -149,9 +182,52 @@ def transferir_a_vacacion(
             detail="Este beneficio ya fue transferido a vacaciones"
         )
 
+    vacacion = db.query(Vacacion).filter(
+        Vacacion.id_empleado == beneficio.id_empleado,
+        Vacacion.gestion == beneficio.gestion,
+    ).first()
+
+    if vacacion:
+        vacacion.horas_correspondientes += HORAS_BENEFICIO_CUMPLEANOS
+        vacacion.horas_goce_haber += HORAS_BENEFICIO_CUMPLEANOS
+    else:
+        empleado = db.query(Empleado).filter(
+            Empleado.id == beneficio.id_empleado
+        ).first()
+
+        if not empleado:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Empleado con ID {beneficio.id_empleado} no encontrado"
+            )
+
+        base_horas = _base_horas_vacacion_lgt(db, empleado.fecha_ingreso, beneficio.gestion)
+
+        vacacion = Vacacion(
+            id_empleado=beneficio.id_empleado,
+            gestion=beneficio.gestion,
+            horas_correspondientes=base_horas + HORAS_BENEFICIO_CUMPLEANOS,
+            horas_goce_haber=HORAS_BENEFICIO_CUMPLEANOS,
+            horas_sin_goce_haber=Decimal("0.0"),
+            horas_tomadas=Decimal("0.0"),
+            observacion=(
+                f"Creada al transferir el beneficio de cumpleaños "
+                f"(gestión {beneficio.gestion})"
+            ),
+        )
+        db.add(vacacion)
+
     beneficio.transferido_a_vacacion = True
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"No se pudo transferir el beneficio a vacaciones: {exc.orig}"
+        )
+
     db.refresh(beneficio)
 
     return beneficio
