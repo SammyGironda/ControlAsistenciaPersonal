@@ -23,6 +23,7 @@ from app.features.attendance.marcacion.models import (
 )
 from app.features.attendance.feriados.models import DiaFestivo, AmbitoFestivoEnum
 from app.features.attendance.justificacion.models import JustificacionAusencia, EstadoAprobacionEnum, TipoJustificacionEnum
+from app.features.employees.horario_personalizado.services import get_activo_by_empleado_id as _get_horario_personalizado_activo
 
 
 # ============================================================
@@ -292,7 +293,31 @@ def calcular_asistencia_dia(
         )
     
     horario = asignacion.horario
-    
+
+    # PASO 2.1: Resolver horario efectivo para minutos_retraso (Semana 9).
+    # Si el empleado tiene un horario_personalizado_empleado activo, su
+    # tolerancia_minutos y hora_entrada reemplazan a los del horario general
+    # (campo por campo: ambos son nullable en el override, así que un campo
+    # no seteado cae de vuelta al valor del horario general). Esto SÍ afecta
+    # el descuento salarial por retraso. Sin override o con activo=FALSE,
+    # el comportamiento es idéntico al de antes (usa horario general).
+    #
+    # hora_salida / salida_flexible del override NO participan de este
+    # cálculo: son solo referenciales para minutos_trabajados/estadísticas.
+    # horas_extra tampoco se toca aquí porque esta función no calcula
+    # horas_extra todavía (queda en 0.0, ver planilla/payroll pendiente);
+    # cuando se implemente, el tiempo trabajado después de la hora_salida
+    # de un override con salida_flexible=TRUE debe excluirse de ese cálculo,
+    # nunca sumarse a horas_extra pagables.
+    horario_personalizado = _get_horario_personalizado_activo(db, id_empleado)
+    hora_entrada_efectiva = horario.hora_entrada
+    tolerancia_efectiva = horario.tolerancia_minutos
+    if horario_personalizado:
+        if horario_personalizado.hora_entrada is not None:
+            hora_entrada_efectiva = horario_personalizado.hora_entrada
+        if horario_personalizado.tolerancia_minutos is not None:
+            tolerancia_efectiva = horario_personalizado.tolerancia_minutos
+
     # PASO 3: Verificar si hay justificación aprobada del día
     justificacion_aprobada = _obtener_justificacion_aprobada_dia(db, id_empleado, fecha)
 
@@ -364,8 +389,8 @@ def calcular_asistencia_dia(
         if justificacion_aprobada.es_por_horas and marcacion_entrada and marcacion_salida:
             minutos_retraso = _calcular_minutos_retraso(
                 hora_entrada_marcada=marcacion_entrada.fecha_hora_marcacion.time(),
-                hora_entrada_esperada=horario.hora_entrada,
-                tolerancia_minutos=horario.tolerancia_minutos,
+                hora_entrada_esperada=hora_entrada_efectiva,
+                tolerancia_minutos=tolerancia_efectiva,
             )
             minutos_trabajados = _calcular_minutos_trabajados(
                 hora_entrada=marcacion_entrada.fecha_hora_marcacion,
@@ -431,8 +456,8 @@ def calcular_asistencia_dia(
         # Marcación completa: calcular retraso y minutos trabajados
         minutos_retraso = _calcular_minutos_retraso(
             hora_entrada_marcada=marcacion_entrada.fecha_hora_marcacion.time(),
-            hora_entrada_esperada=horario.hora_entrada,
-            tolerancia_minutos=horario.tolerancia_minutos
+            hora_entrada_esperada=hora_entrada_efectiva,
+            tolerancia_minutos=tolerancia_efectiva
         )
         
         minutos_trabajados = _calcular_minutos_trabajados(

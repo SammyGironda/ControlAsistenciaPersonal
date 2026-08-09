@@ -49,6 +49,9 @@ from app.features.attendance.vacaciones.models import Vacacion, DetalleVacacion 
 
 # --- Semana 8: Reports ---
 from app.features.reports.reporte.models import Reporte  # noqa: F401
+
+# --- Semana 9: Horario Personalizado ---
+from app.features.employees.horario_personalizado.models import HorarioPersonalizadoEmpleado  # noqa: F401
 # ============================================================
 
 settings = get_settings()

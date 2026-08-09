@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from app.features.attendance.justificacion.models import JustificacionAusencia
     from app.features.attendance.beneficio_cumpleanos.models import BeneficioCumpleanos
     from app.features.attendance.vacaciones.models import Vacacion
+    from app.features.employees.horario_personalizado.models import HorarioPersonalizadoEmpleado
 
 
 # --- ENUMs ---
@@ -173,6 +174,15 @@ class Empleado(Base):
     vacaciones: Mapped[List["Vacacion"]] = relationship(
         "Vacacion",
         back_populates="empleado",
+        cascade="all, delete-orphan"
+    )
+
+    # --- Relación con HorarioPersonalizadoEmpleado (Semana 9) ---
+    # uselist=False: override 1:1 opcional (UNIQUE en id_empleado).
+    horario_personalizado: Mapped[Optional["HorarioPersonalizadoEmpleado"]] = relationship(
+        "HorarioPersonalizadoEmpleado",
+        back_populates="empleado",
+        uselist=False,
         cascade="all, delete-orphan"
     )
 

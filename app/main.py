@@ -148,6 +148,10 @@ app.include_router(reporte_router, prefix=settings.API_PREFIX)
 from app.features.dashboard.router import router as dashboard_router
 app.include_router(dashboard_router, prefix=settings.API_PREFIX)
 
+# --- Semana 9: Horario Personalizado ---
+from app.features.employees.horario_personalizado.router import router as horario_personalizado_router
+app.include_router(horario_personalizado_router, prefix=settings.API_PREFIX)
+
 
 # ============================================================
 # WORKER AUTOMÁTICO - Semana 6
