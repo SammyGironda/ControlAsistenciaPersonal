@@ -16,7 +16,8 @@ from fastapi import HTTPException
 
 from app.features.contracts.contrato import services
 from app.features.contracts.contrato.models import EstadoContratoEnum, TipoContratoEnum
-from app.features.contracts.contrato.schemas import ContratoRenovacion
+from app.features.contracts.contrato.schemas import ContratoCreate, ContratoRenovacion
+from app.features.employees.empleado.models import EstadoEmpleadoEnum
 
 
 class FakeQuery:
@@ -31,19 +32,35 @@ class FakeQuery:
 
 
 class FakeDb:
-    def __init__(self, empleado):
+    def __init__(self, empleado, contrato_activo=None):
         self._empleado = empleado
+        self._contrato_activo = contrato_activo
         self.commits = 0
         self.agregados = []
+        # Estado del empleado tal como quedó en el último commit. Sirve para
+        # detectar cambios asignados DESPUÉS del commit, que no se persisten.
+        self.empleado_al_commitear = None
 
-    def query(self, _modelo):
-        return FakeQuery(self._empleado)
+    def query(self, modelo):
+        from app.features.contracts.contrato.models import Contrato
+        from app.features.employees.empleado.models import Empleado
+
+        if modelo is Empleado:
+            return FakeQuery(self._empleado)
+        if modelo is Contrato:
+            return FakeQuery(self._contrato_activo)
+        return FakeQuery(None)
 
     def add(self, obj):
         self.agregados.append(obj)
 
     def commit(self):
         self.commits += 1
+        if self._empleado is not None:
+            self.empleado_al_commitear = {
+                "estado": getattr(self._empleado, "estado", None),
+                "salario_base": self._empleado.salario_base,
+            }
 
     def refresh(self, _):
         pass
@@ -85,6 +102,62 @@ def test_renovacion_sincroniza_salario_base_del_empleado(monkeypatch):
     # salario ocurren en la misma transacción.
     assert db.commits == 1
     assert len(db.agregados) == 1
+
+
+def test_crear_contrato_activa_al_empleado_dentro_de_la_transaccion():
+    """
+    El cambio de estado debe estar aplicado ANTES del commit. Antes se asignaba
+    después y el db.refresh(empleado) inmediato lo descartaba, así que un
+    empleado 'por_habilitar' se quedaba sin activar.
+    """
+    empleado = SimpleNamespace(
+        id=42,
+        nombre_completo="Empleado 42",
+        estado=EstadoEmpleadoEnum.por_habilitar,
+        salario_base=Decimal("0.00"),
+    )
+    db = FakeDb(empleado)
+    inicio = date.today()
+    data = ContratoCreate(
+        id_empleado=42,
+        tipo_contrato="indefinido",
+        fecha_inicio=inicio,
+        fecha_fin=None,
+        salario_base=Decimal("4200.00"),
+    )
+
+    services.create_contrato(db, data)
+
+    assert empleado.estado == EstadoEmpleadoEnum.activo
+    assert empleado.salario_base == Decimal("4200.00")
+    assert db.commits == 1
+    # Lo decisivo: ambos cambios ya estaban puestos cuando se hizo el commit.
+    assert db.empleado_al_commitear == {
+        "estado": EstadoEmpleadoEnum.activo,
+        "salario_base": Decimal("4200.00"),
+    }
+
+
+def test_crear_contrato_no_toca_el_estado_de_un_empleado_ya_activo():
+    empleado = SimpleNamespace(
+        id=42,
+        nombre_completo="Empleado 42",
+        estado=EstadoEmpleadoEnum.activo,
+        salario_base=Decimal("3000.00"),
+    )
+    db = FakeDb(empleado)
+    data = ContratoCreate(
+        id_empleado=42,
+        tipo_contrato="indefinido",
+        fecha_inicio=date.today(),
+        fecha_fin=None,
+        salario_base=Decimal("3500.00"),
+    )
+
+    services.create_contrato(db, data)
+
+    assert empleado.estado == EstadoEmpleadoEnum.activo
+    assert empleado.salario_base == Decimal("3500.00")
 
 
 def test_renovacion_falla_si_el_empleado_no_existe(monkeypatch):

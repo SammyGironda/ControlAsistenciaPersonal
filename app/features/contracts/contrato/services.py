@@ -33,6 +33,10 @@ def create_contrato(db: Session, data: ContratoCreate) -> Contrato:
     - El empleado debe existir y estar activo
     - No debe tener otro contrato activo
     - Si es plazo_fijo, debe tener fecha_fin
+
+    Efectos sobre el empleado, en la misma transacción que la creación del
+    contrato: se sincroniza `salario_base` y, si estaba 'por_habilitar' o
+    'suspendido', pasa a 'activo'.
     """
     # Validar que el empleado existe y está activo
     empleado = db.query(Empleado).filter(Empleado.id == data.id_empleado).first()
@@ -78,15 +82,29 @@ def create_contrato(db: Session, data: ContratoCreate) -> Contrato:
         observacion=data.observacion
     )
     
+    # Salario y estado del empleado se actualizan ANTES del commit, en la misma
+    # transacción que inserta el contrato. Antes el estado se asignaba después
+    # del commit y el db.refresh(empleado) inmediato lo recargaba desde la base,
+    # descartando el cambio: un empleado 'por_habilitar' nunca llegaba a 'activo'.
     empleado.salario_base = data.salario_base
-    db.add(contrato)
-    db.commit()
-    db.refresh(contrato)
 
     if empleado.estado != EstadoEmpleadoEnum.activo:
         empleado.estado = EstadoEmpleadoEnum.activo
+
+    db.add(contrato)
+
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"No se pudo crear el contrato: {exc.orig}"
+        )
+
+    db.refresh(contrato)
     db.refresh(empleado)
-    
+
     return contrato
 
 
