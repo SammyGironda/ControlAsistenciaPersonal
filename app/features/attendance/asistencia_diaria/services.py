@@ -374,6 +374,23 @@ def calcular_asistencia_dia(
 
     # PASO 8: Resolver por justificación aprobada antes de ausente
     if justificacion_aprobada:
+        if justificacion_aprobada.tipo_justificacion == TipoJustificacionEnum.viaje_trabajo:
+            # El registro de asistencia ya fue creado/actualizado al aprobar
+            # la justificación (ver justificacion/services.py::
+            # _aplicar_viaje_trabajo_aprobado). Esta rama solo evita que un
+            # recálculo posterior (reimportación de Excel, cierre de
+            # período) lo pise y lo devuelva a permiso_parcial/ausente.
+            return _crear_o_actualizar_asistencia(
+                db=db,
+                id_empleado=id_empleado,
+                fecha=fecha,
+                tipo_dia=EstadoDiaEnum.viaje_trabajo,
+                minutos_retraso=0,
+                minutos_trabajados=0,
+                id_justificacion=justificacion_aprobada.id,
+                trabajo_en_feriado=es_dia_descanso_o_feriado(db, id_empleado, fecha),
+            )
+
         if justificacion_aprobada.tipo_justificacion == TipoJustificacionEnum.licencia_medica_accidente:
             return _crear_o_actualizar_asistencia(
                 db=db,
@@ -490,6 +507,69 @@ def calcular_asistencia_dia(
         minutos_trabajados=0,
         horas_permiso_usadas=float(justificacion_aprobada.total_horas_permiso) if justificacion_aprobada and justificacion_aprobada.total_horas_permiso else 0.0,
         observacion="Marcación incompleta: solo tiene salida"
+    )
+
+
+def es_dia_descanso_o_feriado(db: Session, id_empleado: int, fecha: date) -> bool:
+    """
+    Indica si `fecha` sería día de descanso (según el horario asignado al
+    empleado) o feriado, independientemente de si el empleado tuvo
+    marcaciones o una justificación aprobada ese día.
+
+    Reusa los mismos chequeos de PASO 4 y PASO 5 de `calcular_asistencia_dia`,
+    pero sin lanzar si el empleado no tiene horario asignado: en ese caso
+    retorna False (no se puede determinar "descanso", se asume laborable).
+    """
+    empleado = db.query(Empleado).filter(Empleado.id == id_empleado).first()
+    if not empleado:
+        return False
+
+    if _es_feriado(db, fecha, empleado.complemento_dep):
+        return True
+
+    asignacion = db.query(AsignacionHorario).options(
+        joinedload(AsignacionHorario.horario)
+    ).filter(
+        and_(
+            AsignacionHorario.id_empleado == id_empleado,
+            AsignacionHorario.fecha_inicio <= fecha,
+            or_(
+                AsignacionHorario.fecha_fin.is_(None),
+                AsignacionHorario.fecha_fin >= fecha
+            )
+        )
+    ).first()
+
+    if not asignacion:
+        return False
+
+    dias_laborables = _parse_dias_laborables(asignacion.horario.dias_laborables)
+    return fecha.weekday() not in dias_laborables
+
+
+def registrar_dia_viaje_trabajo(
+    db: Session,
+    id_empleado: int,
+    fecha: date,
+    id_justificacion: int,
+    trabajo_en_dia_no_laborable: bool = False,
+) -> AsistenciaDiaria:
+    """
+    Crea o actualiza el registro de asistencia diaria de `fecha` como
+    tipo_dia='viaje_trabajo'. No genera ausente ni descuento (tipo_dia nunca
+    es 'ausente') y no toca `vacacion` por sí mismo — el bono de 8h cuando
+    `trabajo_en_dia_no_laborable=True` se acredita aparte, vía
+    `compensacion_horas_extra` (ver justificacion/services.py).
+    """
+    return _crear_o_actualizar_asistencia(
+        db=db,
+        id_empleado=id_empleado,
+        fecha=fecha,
+        tipo_dia=EstadoDiaEnum.viaje_trabajo,
+        id_justificacion=id_justificacion,
+        minutos_retraso=0,
+        minutos_trabajados=0,
+        trabajo_en_feriado=trabajo_en_dia_no_laborable,
     )
 
 

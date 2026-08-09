@@ -3,11 +3,11 @@ Servicios de negocio para JustificacionAusencia.
 CRUD completo con cálculo automático de horas y flujo de aprobación.
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import List, Optional
 from decimal import Decimal
 from sqlalchemy import and_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from fastapi import HTTPException, status
 
 from app.features.attendance.justificacion.models import (
@@ -20,6 +20,9 @@ from app.features.attendance.justificacion.schemas import (
     JustificacionAusenciaUpdate,
     AprobacionRequest
 )
+from app.features.employees.empleado.models import Empleado
+from app.features.attendance.asistencia_diaria import services as asistencia_diaria_services
+from app.features.attendance.compensacion_horas_extra import services as compensacion_services
 
 
 def calcular_horas_permiso(hora_inicio, hora_fin) -> Decimal:
@@ -137,6 +140,50 @@ def listar_pendientes_de_aprobacion(
     ).order_by(JustificacionAusencia.fecha_inicio.asc()).offset(skip).limit(limit).all()
 
 
+def _aplicar_viaje_trabajo_aprobado(db: Session, justificacion: JustificacionAusencia) -> None:
+    """
+    Efecto de aprobar una justificación tipo_justificacion='viaje_trabajo':
+    por cada fecha del rango [fecha_inicio, fecha_fin], crea/actualiza
+    asistencia_diaria con tipo_dia='viaje_trabajo' apuntando a esta
+    justificación (no genera ausente ni descuento).
+
+    Si algún día del rango sería descanso (fin de semana según horario) o
+    feriado, igual cuenta como trabajado y se acredita un bono de 8h en
+    vacacion (vía compensacion_horas_extra + trigger de Neon) — salvo para
+    empleados con cargo.es_cargo_confianza=TRUE.
+    """
+    empleado = db.query(Empleado).options(
+        joinedload(Empleado.cargo)
+    ).filter(Empleado.id == justificacion.id_empleado).first()
+    es_cargo_confianza = bool(empleado and empleado.cargo and empleado.cargo.es_cargo_confianza)
+
+    fecha_actual = justificacion.fecha_inicio
+    while fecha_actual <= justificacion.fecha_fin:
+        es_no_laborable = asistencia_diaria_services.es_dia_descanso_o_feriado(
+            db, justificacion.id_empleado, fecha_actual
+        )
+
+        asistencia_diaria_services.registrar_dia_viaje_trabajo(
+            db,
+            id_empleado=justificacion.id_empleado,
+            fecha=fecha_actual,
+            id_justificacion=justificacion.id,
+            trabajo_en_dia_no_laborable=es_no_laborable,
+        )
+
+        if es_no_laborable and not es_cargo_confianza:
+            compensacion_services.registrar_compensacion(
+                db,
+                id_empleado=justificacion.id_empleado,
+                fecha=fecha_actual,
+                horas=Decimal("8.0"),
+                motivo=f"Viaje de trabajo (justificación #{justificacion.id}) en día de descanso/feriado",
+                id_registrado_por=justificacion.id_aprobado_por,
+            )
+
+        fecha_actual += timedelta(days=1)
+
+
 def aprobar_o_rechazar(
     db: Session,
     id: int,
@@ -174,6 +221,9 @@ def aprobar_o_rechazar(
 
     db.commit()
     db.refresh(justificacion)
+
+    if data.estado == EstadoAprobacionEnum.aprobado and justificacion.tipo_justificacion == TipoJustificacionEnum.viaje_trabajo:
+        _aplicar_viaje_trabajo_aprobado(db, justificacion)
 
     return justificacion
 

@@ -28,11 +28,18 @@ class TipoJustificacionEnum(str, enum.Enum):
     - licencia_medica_accidente: Licencia por enfermedad o accidente (LGT Art. 32)
     - cumpleanos: Beneficio de medio día por cumpleaños (4h)
     - vacacion_por_horas: Consumo fraccionado de vacaciones (deducible del saldo)
+    - viaje_trabajo: Comisión de trabajo fuera de oficina. Cuenta como día
+      trabajado en asistencia_diaria (tipo_dia='viaje_trabajo'), no genera
+      ausente ni descuento de salario, y no consume saldo de vacación por sí
+      mismo — salvo que caiga sobre un día de descanso/feriado, en cuyo caso
+      se acredita un bono de 8h vía compensacion_horas_extra (excepto para
+      cargo.es_cargo_confianza=TRUE).
     """
     permiso_personal = "permiso_personal"
     licencia_medica_accidente = "licencia_medica_accidente"
     cumpleanos = "cumpleanos"
     vacacion_por_horas = "vacacion_por_horas"
+    viaje_trabajo = "viaje_trabajo"
 
 
 class TipoPermisoEnum(str, enum.Enum):

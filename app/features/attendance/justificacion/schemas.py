@@ -16,6 +16,7 @@ class TipoJustificacionEnum(str, Enum):
     licencia_medica_accidente = "licencia_medica_accidente"
     cumpleanos = "cumpleanos"
     vacacion_por_horas = "vacacion_por_horas"
+    viaje_trabajo = "viaje_trabajo"
 
 
 class TipoPermisoEnum(str, Enum):

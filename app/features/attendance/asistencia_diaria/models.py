@@ -30,6 +30,10 @@ class EstadoDiaEnum(str, enum.Enum):
     - presente_exento: Cargo de confianza (sin marcación requerida)
     - licencia_medica: Licencia por accidente/enfermedad (no descuenta salario)
     - descanso: Fin de semana o día no laborable según horario asignado
+    - viaje_trabajo: Comisión de trabajo fuera de oficina (justificación
+      aprobada). Cuenta como día trabajado, no genera ausente ni descuento
+      de salario y no consume saldo de vacación por sí mismo (ver
+      compensacion_horas_extra para el bono cuando cae en descanso/feriado)
     """
     presente = "presente"
     ausente = "ausente"
@@ -38,6 +42,7 @@ class EstadoDiaEnum(str, enum.Enum):
     presente_exento = "presente_exento"
     licencia_medica = "licencia_medica"
     descanso = "descanso"
+    viaje_trabajo = "viaje_trabajo"
 
 
 class EstadoPeriodoAsistenciaEnum(str, enum.Enum):
