@@ -106,6 +106,21 @@ def test_sin_goce_de_haber_descuenta_de_su_propio_saldo(monkeypatch):
     assert vacacion.horas_goce_haber == Decimal("40.0")
 
 
+def test_no_se_puede_exceder_las_horas_correspondientes(monkeypatch):
+    # Saldo de goce alcanza (40h), pero ya se tomaron 116h de 120h: tomar 8h más
+    # rompería chk_vacacion_no_excede.
+    detalle = _detalle(TipoVacacionEnum.goce_de_haber, horas="8.0")
+    vacacion = _vacacion(correspondientes="120.0", goce="40.0", tomadas="116.0")
+
+    with pytest.raises(HTTPException) as error:
+        _tomar(monkeypatch, detalle, vacacion)
+
+    assert error.value.status_code == 400
+    assert "excederían las horas correspondientes" in error.value.detail
+    assert vacacion.horas_tomadas == Decimal("116.0")
+    assert vacacion.horas_goce_haber == Decimal("40.0")
+
+
 def test_saldo_insuficiente_no_deja_la_vacacion_mutada(monkeypatch):
     detalle = _detalle(TipoVacacionEnum.goce_de_haber, horas="48.0")
     vacacion = _vacacion(goce="40.0")

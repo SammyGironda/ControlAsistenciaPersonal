@@ -555,6 +555,24 @@ def cambiar_estado_detalle(
                     )
                 )
 
+            # Tope global, distinto del chequeo de aprobación de más arriba:
+            # aprobar no reserva nada (horas_tomadas solo se mueve aquí), así que
+            # N solicitudes pueden aprobarse todas contra el mismo saldo y recién
+            # chocarían al tomarse. Espeja el CHECK chk_vacacion_no_excede
+            # (migración 3d9a17c4b8e2) para devolver un 400 legible en vez de un
+            # IntegrityError de Postgres.
+            horas_tomadas_resultantes = vacacion.horas_tomadas + detalle.horas_habiles
+
+            if horas_tomadas_resultantes > vacacion.horas_correspondientes:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"Las horas tomadas excederían las horas correspondientes de la gestión. "
+                        f"Tomadas: {vacacion.horas_tomadas}, solicitadas: {detalle.horas_habiles}, "
+                        f"correspondientes: {vacacion.horas_correspondientes}"
+                    )
+                )
+
             vacacion.horas_tomadas += detalle.horas_habiles
             setattr(vacacion, campo_saldo, saldo_actual - detalle.horas_habiles)
 
