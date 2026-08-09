@@ -7,6 +7,7 @@ from datetime import date, timedelta
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
+from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException, status
 
 from app.features.contracts.contrato.models import Contrato, TipoContratoEnum, EstadoContratoEnum
@@ -254,8 +255,16 @@ def renovar_contrato_plazo_fijo(
     2. Finaliza el contrato anterior
     3. Crea un nuevo contrato con el nuevo salario
     
+    3. Sincroniza empleado.salario_base con el salario del contrato nuevo
+
     NOTA: Para contratos indefinidos, los incrementos se registran en ajuste_salarial,
     NO se crea un nuevo contrato.
+
+    La sincronización del paso 3 es explícita porque para un plazo fijo no hay
+    otra ruta que la haga: el trigger `trg_sync_salario_empleado` solo dispara al
+    insertar en `ajuste_salarial`, y `create_ajuste_salarial` rechaza los
+    contratos que no son indefinidos. Sin este paso, `empleado.salario_base`
+    quedaba con el salario viejo indefinidamente tras cada renovación.
     """
     contrato_anterior = get_contrato_by_id(db, contrato_id)
     if not contrato_anterior:
@@ -293,6 +302,15 @@ def renovar_contrato_plazo_fijo(
             detail="La renovación debe iniciar hoy o en una fecha futura para evitar crear un contrato ya vencido"
         )
     
+    empleado = db.query(Empleado).filter(
+        Empleado.id == contrato_anterior.id_empleado
+    ).first()
+    if not empleado:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No existe el empleado con ID {contrato_anterior.id_empleado}"
+        )
+
     # Finalizar contrato anterior
     contrato_anterior.estado = EstadoContratoEnum.vencido
     contrato_anterior.fecha_fin = min(
@@ -313,10 +331,23 @@ def renovar_contrato_plazo_fijo(
         observacion=f"Renovación de contrato ID {contrato_id}. {data.observacion or ''}".strip()
     )
     
+    # Sincronizar el salario del empleado con el del contrato que pasa a regir,
+    # en la MISMA transacción que vence el anterior y crea el nuevo.
+    empleado.salario_base = data.salario_base
+
     db.add(contrato_nuevo)
-    db.commit()
+
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"No se pudo renovar el contrato: {exc.orig}"
+        )
+
     db.refresh(contrato_nuevo)
-    
+
     return contrato_nuevo
 
 
