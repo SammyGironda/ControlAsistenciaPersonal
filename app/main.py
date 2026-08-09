@@ -23,15 +23,17 @@ app = FastAPI(
 )
 
 # --- Configurar CORS ---
+# Los orígenes salen de ALLOWED_ORIGINS (CSV en el .env de cada entorno). El
+# comodín "*" anterior era además incompatible con allow_credentials=True: los
+# navegadores rechazan esa combinación, así que las peticiones con credenciales
+# nunca habrían funcionado en producción.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # En producción, especificar dominios
+    allow_origins=settings.allowed_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# I 
 
 # --- Endpoint de salud ---
 @app.get("/", tags=["Health"])
