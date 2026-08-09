@@ -4,6 +4,7 @@ Incluye cálculo automático de retrasos, minutos trabajados y tipo de día.
 """
 
 from datetime import date, datetime, time, timedelta
+from decimal import Decimal
 from typing import Optional, List
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_, func, or_, text, bindparam
@@ -24,6 +25,11 @@ from app.features.attendance.marcacion.models import (
 from app.features.attendance.feriados.models import DiaFestivo, AmbitoFestivoEnum
 from app.features.attendance.justificacion.models import JustificacionAusencia, EstadoAprobacionEnum, TipoJustificacionEnum
 from app.features.employees.horario_personalizado.services import get_activo_by_empleado_id as _get_horario_personalizado_activo
+from app.features.attendance.compensacion_horas_extra import services as compensacion_services
+
+
+# Horas de compensación que acredita un día no laborable efectivamente trabajado.
+HORAS_COMPENSACION_DIA_NO_LABORABLE = Decimal("8.0")
 
 
 # ============================================================
@@ -272,19 +278,25 @@ def calcular_asistencia_dia(
     
     cargo = empleado.cargo
     
-    # PASO 2: Obtener horario asignado vigente
+    # PASO 2: Obtener horario asignado vigente.
+    # `es_activo` es obligatorio: delete_asignacion_horario es un soft-delete que
+    # solo apaga ese flag sin tocar fecha_fin, así que sin el filtro una
+    # asignación eliminada seguiría resolviéndose como vigente. El order_by hace
+    # determinista el resultado cuando dos asignaciones se solapan: gana la más
+    # reciente.
     asignacion = db.query(AsignacionHorario).options(
         joinedload(AsignacionHorario.horario)
     ).filter(
         and_(
             AsignacionHorario.id_empleado == id_empleado,
+            AsignacionHorario.es_activo == True,
             AsignacionHorario.fecha_inicio <= fecha,
             or_(
                 AsignacionHorario.fecha_fin.is_(None),
                 AsignacionHorario.fecha_fin >= fecha
             )
         )
-    ).first()
+    ).order_by(AsignacionHorario.fecha_inicio.desc()).first()
     
     if not asignacion:
         raise HTTPException(
@@ -340,18 +352,54 @@ def calcular_asistencia_dia(
     es_feriado = _es_feriado(db, fecha, empleado.complemento_dep)
     if es_feriado:
         marcaciones_feriado = _obtener_marcaciones_dia(db, id_empleado, fecha)
+        entrada_feriado = next((m for m in marcaciones_feriado if m.tipo_marcacion == TipoMarcacionEnum.ENTRADA), None)
+        salida_feriado = next((m for m in marcaciones_feriado if m.tipo_marcacion == TipoMarcacionEnum.SALIDA), None)
         trabajo_en_feriado = len(marcaciones_feriado) > 0
-        return _crear_o_actualizar_asistencia(
+
+        # Con el par completo se guardan los minutos realmente trabajados. Antes
+        # el feriado forzaba 0 aunque el empleado hubiera venido a trabajar, así
+        # que el día quedaba sin rastro de la jornada.
+        minutos_trabajados_feriado = 0
+        if entrada_feriado and salida_feriado:
+            minutos_trabajados_feriado = _calcular_minutos_trabajados(
+                hora_entrada=entrada_feriado.fecha_hora_marcacion,
+                hora_salida=salida_feriado.fecha_hora_marcacion
+            )
+
+        asistencia_feriado = _crear_o_actualizar_asistencia(
             db=db,
             id_empleado=id_empleado,
             fecha=fecha,
             tipo_dia=EstadoDiaEnum.feriado,
             minutos_retraso=0,
-            minutos_trabajados=0,
+            minutos_trabajados=minutos_trabajados_feriado,
+            id_marcacion_entrada=entrada_feriado.id if entrada_feriado else None,
+            id_marcacion_salida=salida_feriado.id if salida_feriado else None,
             id_justificacion=justificacion_aprobada.id if justificacion_aprobada else None,
             horas_permiso_usadas=float(justificacion_aprobada.total_horas_permiso) if justificacion_aprobada and justificacion_aprobada.total_horas_permiso else 0.0,
             trabajo_en_feriado=trabajo_en_feriado,
         )
+
+        # Acreditar las 8h de compensación por trabajar un feriado, igual que se
+        # hace con el viaje de trabajo en día no laborable (ver
+        # justificacion/services.py::_aplicar_viaje_trabajo_aprobado). El trigger
+        # trg_compensacion_horas_extra_a_vacacion vuelca esas horas al saldo de
+        # vacación. Los cargos de confianza quedan fuera: no marcan huella y su
+        # jornada no se compensa por horas.
+        #
+        # Se llama DESPUÉS de crear la asistencia (que ya hizo commit) y es
+        # idempotente: el UNIQUE (id_empleado, fecha) de compensacion_horas_extra
+        # hace que reprocesar el mismo Excel no acredite las horas dos veces.
+        if trabajo_en_feriado and not cargo.es_cargo_confianza:
+            compensacion_services.registrar_compensacion(
+                db,
+                id_empleado=id_empleado,
+                fecha=fecha,
+                horas=HORAS_COMPENSACION_DIA_NO_LABORABLE,
+                motivo=f"Trabajo en feriado {fecha.isoformat()}",
+            )
+
+        return asistencia_feriado
 
     # PASO 6: Verificar si es cargo de confianza
     if cargo.es_cargo_confianza:
@@ -527,18 +575,21 @@ def es_dia_descanso_o_feriado(db: Session, id_empleado: int, fecha: date) -> boo
     if _es_feriado(db, fecha, empleado.complemento_dep):
         return True
 
+    # Mismos criterios que el PASO 2 de calcular_asistencia_dia: solo
+    # asignaciones activas y, ante solapamiento, la más reciente.
     asignacion = db.query(AsignacionHorario).options(
         joinedload(AsignacionHorario.horario)
     ).filter(
         and_(
             AsignacionHorario.id_empleado == id_empleado,
+            AsignacionHorario.es_activo == True,
             AsignacionHorario.fecha_inicio <= fecha,
             or_(
                 AsignacionHorario.fecha_fin.is_(None),
                 AsignacionHorario.fecha_fin >= fecha
             )
         )
-    ).first()
+    ).order_by(AsignacionHorario.fecha_inicio.desc()).first()
 
     if not asignacion:
         return False

@@ -201,17 +201,24 @@ def _seleccionar_marcacion_duplicada(marcaciones, hora_esperada: time, tipo_marc
 
 
 def _obtener_horario_empleado(db: Session, id_empleado: int, fecha: date):
-    """Obtiene la asignación de horario vigente para un empleado en una fecha."""
+    """
+    Obtiene la asignación de horario vigente para un empleado en una fecha.
+
+    Solo considera asignaciones activas (delete_asignacion_horario es un
+    soft-delete que no toca fecha_fin) y, ante solapamiento, devuelve la más
+    reciente para que el resultado sea determinista.
+    """
     asignacion = db.query(AsignacionHorario).options(joinedload(AsignacionHorario.horario)).filter(
         and_(
             AsignacionHorario.id_empleado == id_empleado,
+            AsignacionHorario.es_activo == True,
             AsignacionHorario.fecha_inicio <= fecha,
             or_(
                 AsignacionHorario.fecha_fin.is_(None),
                 AsignacionHorario.fecha_fin >= fecha,
             ),
         )
-    ).first()
+    ).order_by(AsignacionHorario.fecha_inicio.desc()).first()
 
     return asignacion.horario if asignacion else None
 

@@ -463,7 +463,7 @@ def get_horario_actual_empleado(
             AsignacionHorario.fecha_fin.is_(None),
             AsignacionHorario.fecha_fin >= fecha
         )
-    ).first()
+    ).order_by(AsignacionHorario.fecha_inicio.desc()).first()
 
     if not asignacion:
         return None
