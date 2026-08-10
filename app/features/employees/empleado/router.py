@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, Path
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.deps import require_admin, require_roles
 from app.features.employees.empleado import services
 from app.features.employees.empleado.schemas import (
     EmpleadoCreate,
@@ -168,7 +169,8 @@ def update_empleado(
     "/{empleado_id}/habilitar",
     response_model=EmpleadoResponse,
     summary="Habilitar empleado",
-    description="Restituye un empleado dado de baja y lo deja en estado por_habilitar"
+    description="Restituye un empleado dado de baja y lo deja en estado por_habilitar",
+    dependencies=[Depends(require_roles("admin", "rrhh"))],
 )
 def habilitar_empleado(
     empleado_id: int,
@@ -182,7 +184,8 @@ def habilitar_empleado(
     "/{empleado_id}/dar-baja",
     response_model=EmpleadoResponse,
     summary="Dar de baja a un empleado",
-    description="Cambia el estado del empleado a 'baja' (soft delete)"
+    description="Cambia el estado del empleado a 'baja' (soft delete)",
+    dependencies=[Depends(require_admin)],
 )
 def dar_baja_empleado(
     empleado_id: int,
@@ -202,7 +205,8 @@ def dar_baja_empleado(
     "/{empleado_id}/suspender",
     response_model=EmpleadoResponse,
     summary="Suspender empleado",
-    description="Cambia el estado del empleado a 'suspendido'"
+    description="Cambia el estado del empleado a 'suspendido'",
+    dependencies=[Depends(require_roles("admin", "rrhh"))],
 )
 def suspender_empleado(
     empleado_id: int,
@@ -221,7 +225,8 @@ def suspender_empleado(
     "/{empleado_id}/reactivar",
     response_model=EmpleadoResponse,
     summary="Reactivar empleado",
-    description="Cambia el estado del empleado a 'activo' (solo para suspendidos)"
+    description="Cambia el estado del empleado a 'activo' (solo para suspendidos)",
+    dependencies=[Depends(require_roles("admin", "rrhh"))],
 )
 def reactivar_empleado(
     empleado_id: int,

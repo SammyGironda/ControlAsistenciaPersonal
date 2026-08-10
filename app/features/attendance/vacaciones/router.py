@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Query, Body, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.deps import require_admin, require_roles
 from app.features.attendance.vacaciones import services
 from app.features.attendance.vacaciones.schemas import (
     VacacionCreate,
@@ -129,7 +130,8 @@ def actualizar_vacacion(
 @router.delete(
     "/{id:int}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Eliminar vacación (CASCADE)"
+    summary="Eliminar vacación (CASCADE)",
+    dependencies=[Depends(require_admin)],
 )
 def eliminar_vacacion(
     id: int,
@@ -313,7 +315,8 @@ def actualizar_detalle_vacacion(
 @router.post(
     "/detalles/{id:int}/cambiar-estado",
     response_model=DetalleVacacionResponse,
-    summary="Cambiar estado de solicitud de vacación"
+    summary="Cambiar estado de solicitud de vacación",
+    dependencies=[Depends(require_roles("admin", "supervisor", "rrhh"))],
 )
 def cambiar_estado_detalle(
     id: int,
@@ -346,7 +349,8 @@ def cambiar_estado_detalle(
 @router.delete(
     "/detalles/{id:int}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Eliminar detalle de vacación"
+    summary="Eliminar detalle de vacación",
+    dependencies=[Depends(require_admin)],
 )
 def eliminar_detalle_vacacion(
     id: int,

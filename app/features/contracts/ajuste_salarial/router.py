@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, Path
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.deps import require_admin
 from app.features.contracts.ajuste_salarial import services
 from app.features.contracts.ajuste_salarial.schemas import (
     AjusteSalarialCreate,
@@ -164,7 +165,8 @@ def get_decreto_anio(
     "/decretos/{decreto_id}/aplicar",
     response_model=AplicarDecretoResponse,
     summary="Aplicar decreto a todos los empleados",
-    description="Aplica el decreto a TODOS los empleados con contrato indefinido activo"
+    description="Aplica el decreto a TODOS los empleados con contrato indefinido activo",
+    dependencies=[Depends(require_admin)],
 )
 def aplicar_decreto(
     decreto_id: int = Path(..., gt=0),

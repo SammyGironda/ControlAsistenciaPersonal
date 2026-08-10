@@ -5,16 +5,17 @@ JWT ya está activo: app/core/security.py emite y valida tokens, y
 get_current_user() de este módulo los verifica contra el header
 `Authorization: Bearer <token>`.
 
-Lo que todavía NO está aplicado es el guard endpoint por endpoint: los routers
-del backend siguen abiertos. require_admin() sigue siendo un placeholder no-op
-para que los endpoints que YA deben quedar restringidos a admin
-(ej. horario_personalizado, compensacion_horas_extra) lo declaren desde ahora
-vía Depends() y no haya que tocar cada router de nuevo.
+require_admin() y require_roles() aplican el guard de rol: releen el usuario
+autenticado (get_current_user, que ya relee el rol fresco de la base) y
+comparan current_user.rol.nombre contra el/los roles permitidos, en
+minúsculas. Se usan como dependencies=[Depends(require_admin)] o
+dependencies=[Depends(require_roles("admin", "rrhh"))] en el decorador del
+endpoint — mismo patrón ya presente en horario_personalizado/router.py y
+compensacion_horas_extra/router.py.
 
-TODO (sesión siguiente): reemplazar el cuerpo de require_admin() por la
-verificación real (recibir current_user vía Depends(get_current_user), validar
-current_user.rol.nombre == 'admin', levantar 403 si corresponde) y agregar
-Depends(get_current_user) a los routers existentes.
+TODO (sesión siguiente): aplicar estos guards al resto de routers que todavía
+quedan completamente abiertos, y usar current_user (vía Depends(get_current_user)
+directo, no solo dependencies=[]) para poblar id_generado_por/id_aprobado_por.
 
 Nota sobre imports: la dirección es siempre deps -> features/auth/usuario/services.
 Si algún día usuario/services.py importara este módulo habría un ciclo.
@@ -91,6 +92,28 @@ def get_current_user(
     return usuario
 
 
-def require_admin() -> None:
-    """Placeholder de autorización admin-only. No hace nada todavía."""
-    return None
+def require_roles(*roles_permitidos: str):
+    """
+    Factory de dependencia: exige que el usuario autenticado tenga uno de los
+    roles indicados (comparación case-insensitive contra current_user.rol.nombre).
+    Levanta 403 si el rol no corresponde. get_current_user ya se encarga de
+    exigir el 401 si no hay usuario autenticado.
+    """
+    roles_normalizados = {r.lower() for r in roles_permitidos}
+
+    def _verificar(current_user: Usuario = Depends(get_current_user)) -> Usuario:
+        if current_user.rol.nombre.lower() not in roles_normalizados:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Acceso restringido a: {', '.join(sorted(roles_normalizados))}",
+            )
+        return current_user
+
+    return _verificar
+
+
+def require_admin(current_user: Usuario = Depends(get_current_user)) -> Usuario:
+    """Exige que el usuario autenticado tenga rol admin."""
+    if current_user.rol.nombre.lower() != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acceso restringido a: admin")
+    return current_user

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.deps import require_admin
 from app.features.auth.rol import schemas, services
 
 # Crear router con documentación
@@ -95,7 +96,8 @@ def update_rol(
 
 @router.delete(
     "/{rol_id}",
-    summary="Eliminar rol (hard delete)"
+    summary="Eliminar rol (hard delete)",
+    dependencies=[Depends(require_admin)],
 )
 def delete_rol(
     rol_id: int,

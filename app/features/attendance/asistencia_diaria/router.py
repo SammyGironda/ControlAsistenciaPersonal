@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, Path
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.deps import require_admin, require_roles
 from app.features.attendance.asistencia_diaria import services
 from app.features.attendance.asistencia_diaria.schemas import (
     AsistenciaDiariaCreate, AsistenciaDiariaUpdate,
@@ -141,7 +142,8 @@ def update_asistencia(
     "/{asistencia_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Eliminar registro de asistencia",
-    description="Elimina un registro de asistencia (HARD DELETE - usar con precaución)"
+    description="Elimina un registro de asistencia (HARD DELETE - usar con precaución)",
+    dependencies=[Depends(require_admin)],
 )
 def delete_asistencia(
     asistencia_id: int = Path(..., gt=0, description="ID de la asistencia"),
@@ -166,7 +168,8 @@ def delete_asistencia(
     response_model=ResultadoProcesamiento,
     status_code=status.HTTP_200_OK,
     summary="Procesar asistencia de un día específico",
-    description="Procesa manualmente la asistencia de todos los empleados para una fecha"
+    description="Procesa manualmente la asistencia de todos los empleados para una fecha",
+    dependencies=[Depends(require_roles("admin", "rrhh"))],
 )
 def procesar_dia_manual(
     fecha: date = Query(..., description="Fecha a procesar (formato YYYY-MM-DD)"),
@@ -251,6 +254,7 @@ def recalcular_asistencia_empleado(
     response_model=ResultadoCierrePeriodo,
     summary="Cerrar y procesar un período mensual",
     description="Valida incidencias pendientes, recalcula todos los días del mes y bloquea el período.",
+    dependencies=[Depends(require_admin)],
 )
 def cerrar_periodo_mensual(
     anio: int = Path(..., ge=2020, le=2100),
@@ -266,6 +270,7 @@ def cerrar_periodo_mensual(
     response_model=PeriodoAsistenciaResponse,
     summary="Reabrir un período mensual",
     description="Habilita de nuevo un período cerrado para importar o corregir marcaciones.",
+    dependencies=[Depends(require_admin)],
 )
 def reabrir_periodo_mensual(
     anio: int = Path(..., ge=2020, le=2100),

@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.deps import require_admin
 from app.features.reports.reporte import services
 from app.features.reports.reporte.models import TipoReporteEnum, FormatoReporteEnum
 from app.features.reports.reporte.schemas import (
@@ -137,6 +138,7 @@ def eliminar_reporte(reporte_id: int, db: Session = Depends(get_db)):
     "/{reporte_id:int}/permanente",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Eliminar reporte permanentemente (hard delete)",
+    dependencies=[Depends(require_admin)],
 )
 def eliminar_reporte_permanente(reporte_id: int, db: Session = Depends(get_db)):
     """Elimina el registro de reporte de forma permanente."""

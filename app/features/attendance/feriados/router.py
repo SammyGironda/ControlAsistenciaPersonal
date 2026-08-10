@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.deps import require_admin
 from app.features.attendance.feriados import services
 from app.features.attendance.feriados.schemas import (
     DiaFestivoCreate,
@@ -157,7 +158,8 @@ def eliminar_feriado(
 @router.delete(
     "/{id}/permanente",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Eliminar feriado permanentemente (hard delete)"
+    summary="Eliminar feriado permanentemente (hard delete)",
+    dependencies=[Depends(require_admin)],
 )
 def eliminar_feriado_permanente(
     id: int,

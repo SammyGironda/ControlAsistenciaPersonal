@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.deps import require_admin, require_roles
 from app.features.attendance.justificacion import services
 from app.features.attendance.justificacion.schemas import (
     JustificacionAusenciaCreate,
@@ -114,7 +115,8 @@ def listar_pendientes(
 @router.post(
     "/{id}/aprobar",
     response_model=JustificacionAusenciaResponse,
-    summary="Aprobar o rechazar justificación"
+    summary="Aprobar o rechazar justificación",
+    dependencies=[Depends(require_roles("admin", "supervisor", "rrhh"))],
 )
 def aprobar_rechazar(
     id: int,
@@ -159,7 +161,8 @@ def actualizar_justificacion(
 @router.delete(
     "/{id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Eliminar justificación"
+    summary="Eliminar justificación",
+    dependencies=[Depends(require_admin)],
 )
 def eliminar_justificacion(
     id: int,

@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, Path, Uplo
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.deps import require_roles
 from app.features.attendance.marcacion import services
 from app.features.attendance.marcacion.schemas import (
     MarcacionCreate, MarcacionResponse, MarcacionConEmpleado,
@@ -32,7 +33,8 @@ router = APIRouter(
     response_model=UploadExcelResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Upload de archivo Excel con marcaciones",
-    description="Procesa un archivo Excel con marcaciones biométricas usando Pandas"
+    description="Procesa un archivo Excel con marcaciones biométricas usando Pandas",
+    dependencies=[Depends(require_roles("admin", "rrhh"))],
 )
 async def upload_excel_marcaciones(
     file: UploadFile = File(..., description="Archivo Excel (.xls o .xlsx)"),
@@ -224,7 +226,8 @@ def get_incidencias_pendientes(
     "/incidencias/{incidencia_id}",
     response_model=IncidenciaMarcacionResponse,
     summary="Resolver incidencia",
-    description="Actualiza el estado de resolución de una incidencia"
+    description="Actualiza el estado de resolución de una incidencia",
+    dependencies=[Depends(require_roles("admin", "supervisor", "rrhh"))],
 )
 def resolver_incidencia(
     incidencia_id: int = Path(..., gt=0),

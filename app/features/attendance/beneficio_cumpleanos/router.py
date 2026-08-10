@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Query, status, Body
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.deps import require_admin
 from app.features.attendance.beneficio_cumpleanos import services
 from app.features.attendance.beneficio_cumpleanos.schemas import (
     BeneficioCumpleanosCreate,
@@ -153,7 +154,8 @@ def actualizar_beneficio(
 @router.delete(
     "/{id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Eliminar beneficio"
+    summary="Eliminar beneficio",
+    dependencies=[Depends(require_admin)],
 )
 def eliminar_beneficio(
     id: int,

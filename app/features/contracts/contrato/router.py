@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, Path
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.deps import require_roles
 from app.features.contracts.contrato import services
 from app.features.contracts.contrato.schemas import (
     ContratoCreate,
@@ -171,7 +172,8 @@ def update_contrato(
     "/{contrato_id}/finalizar",
     response_model=ContratoResponse,
     summary="Finalizar contrato",
-    description="Cambia el estado del contrato a 'vencido' (finalización normal)"
+    description="Cambia el estado del contrato a 'vencido' (finalización normal)",
+    dependencies=[Depends(require_roles("admin", "rrhh"))],
 )
 def finalizar_contrato(
     contrato_id: int = Path(..., gt=0),
@@ -190,7 +192,8 @@ def finalizar_contrato(
     "/{contrato_id}/rescindir",
     response_model=ContratoResponse,
     summary="Rescindir contrato",
-    description="Cambia el estado del contrato a 'rescindido' (finalización anticipada)"
+    description="Cambia el estado del contrato a 'rescindido' (finalización anticipada)",
+    dependencies=[Depends(require_roles("admin", "rrhh"))],
 )
 def rescindir_contrato(
     contrato_id: int = Path(..., gt=0),

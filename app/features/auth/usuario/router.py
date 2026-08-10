@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.deps import require_admin
 from app.features.auth.usuario import schemas, services
 
 router = APIRouter(
@@ -123,7 +124,8 @@ def update_usuario(
 
 @router.delete(
     "/{usuario_id}",
-    summary="Eliminar usuario (hard delete)"
+    summary="Eliminar usuario (hard delete)",
+    dependencies=[Depends(require_admin)],
 )
 def delete_usuario(
     usuario_id: int,
