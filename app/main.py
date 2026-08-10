@@ -106,6 +106,10 @@ from app.features.auth.usuario.router import router as usuario_router
 app.include_router(rol_router, prefix=settings.API_PREFIX)
 app.include_router(usuario_router, prefix=settings.API_PREFIX)
 
+# --- Semana 9: Auth - Login JWT ---
+from app.features.auth.router import router as auth_router
+app.include_router(auth_router, prefix=settings.API_PREFIX)
+
 # --- Semana 3: Employees ---
 from app.features.employees.departamento.router import router as departamento_router
 from app.features.employees.cargo.router import router as cargo_router

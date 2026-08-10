@@ -38,7 +38,8 @@ email-validator==2.2.0
 bcrypt==4.0.1
 
 # ============================================================
-# SEMANA 9 ÚNICAMENTE — JWT
-# Activar descomentando esta línea en Semana 9
+# SEMANA 9 — JWT (ACTIVO)
+# PyJWT y no python-jose: es la librería que usa la documentación oficial de
+# FastAPI y sigue mantenida (python-jose no publica release desde 2021).
 # ============================================================
-# python-jose[cryptography]==3.3.0
+pyjwt[crypto]==2.10.1
