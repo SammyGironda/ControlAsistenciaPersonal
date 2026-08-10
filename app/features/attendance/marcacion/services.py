@@ -492,21 +492,28 @@ def get_incidencias_pendientes(db: Session, skip: int = 0, limit: int = 100) -> 
 # Campos de IncidenciaMarcacionUpdate que sí son columnas de la tabla. El resto
 # (accion_resolucion, hora_correccion, tipo_marcacion_correccion) son
 # instrucciones para _aplicar_resolucion_incidencia, no atributos a persistir.
+# id_resuelto_por no está acá: ya no llega en `data`, se asigna aparte desde
+# el usuario autenticado (ver parámetro id_resuelto_por de esta función).
 _CAMPOS_PERSISTIBLES_INCIDENCIA = frozenset({
     "estado_resolucion",
     "evidencia_url",
     "descripcion_resolucion",
-    "id_resuelto_por",
 })
 
 
-def update_incidencia(db: Session, incidencia_id: int, data: IncidenciaMarcacionUpdate) -> IncidenciaMarcacion:
+def update_incidencia(
+    db: Session, incidencia_id: int, data: IncidenciaMarcacionUpdate, id_resuelto_por: int
+) -> IncidenciaMarcacion:
     """
     Actualiza el estado de una incidencia.
 
     Para pasar a 'resuelto' se exige evidencia: o viene en el body, o ya estaba
     guardada en la incidencia. Cerrar una incidencia es afirmar que la marcación
     fue corregida, y esa afirmación tiene que quedar respaldada.
+
+    id_resuelto_por es el id_empleado del usuario autenticado (resuelto en el
+    router vía get_actor_empleado_id) — toda actualización queda firmada por
+    quien la tocó, sin importar a qué estado se mueva.
     """
     incidencia = db.query(IncidenciaMarcacion).filter(IncidenciaMarcacion.id == incidencia_id).first()
     if not incidencia:
@@ -532,6 +539,8 @@ def update_incidencia(db: Session, incidencia_id: int, data: IncidenciaMarcacion
     for key, value in data.model_dump(exclude_unset=True).items():
         if key in _CAMPOS_PERSISTIBLES_INCIDENCIA:
             setattr(incidencia, key, value)
+
+    incidencia.id_resuelto_por = id_resuelto_por
 
     if data.estado_resolucion == EstadoResolucionEnum.resuelto.value and not incidencia.fecha_resolucion:
         incidencia.fecha_resolucion = datetime.now()

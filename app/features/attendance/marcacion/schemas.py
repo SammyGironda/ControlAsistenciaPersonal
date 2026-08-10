@@ -199,17 +199,18 @@ class IncidenciaMarcacionUpdate(BaseModel):
         description="Respaldo de la corrección. Obligatorio para resolver, salvo que la incidencia ya tenga uno."
     )
     descripcion_resolucion: Optional[str] = Field(None, max_length=5000)
-    id_resuelto_por: Optional[int] = Field(None, gt=0)
     accion_resolucion: Optional[str] = Field(None, max_length=50)
     hora_correccion: Optional[str] = Field(None, max_length=5)
     tipo_marcacion_correccion: Optional[str] = Field(None, pattern="^(ENTRADA|SALIDA)$")
+
+    # id_resuelto_por ya no se acepta del cliente: se deriva del usuario
+    # autenticado (get_actor_empleado_id) en el router.
 
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
                 "estado_resolucion": "resuelto",
                 "descripcion_resolucion": "Se corrigió la marcación de salida manualmente",
-                "id_resuelto_por": 1,
                 "evidencia_url": "/docs/evidencias/incidencia_123.pdf",
                 "accion_resolucion": "completar",
                 "hora_correccion": "08:00",

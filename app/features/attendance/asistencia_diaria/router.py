@@ -9,7 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, Path
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import require_admin, require_roles
+from app.core.deps import get_actor_empleado_id, get_current_user, require_admin, require_roles
+from app.features.auth.usuario.models import Usuario
 from app.features.attendance.asistencia_diaria import services
 from app.features.attendance.asistencia_diaria.schemas import (
     AsistenciaDiariaCreate, AsistenciaDiariaUpdate,
@@ -259,10 +260,10 @@ def recalcular_asistencia_empleado(
 def cerrar_periodo_mensual(
     anio: int = Path(..., ge=2020, le=2100),
     mes: int = Path(..., ge=1, le=12),
-    id_cerrado_por: Optional[int] = Query(None, gt=0),
     db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
 ):
-    return services.cerrar_periodo_asistencia(db, anio, mes, id_cerrado_por)
+    return services.cerrar_periodo_asistencia(db, anio, mes, get_actor_empleado_id(current_user))
 
 
 @router.post(

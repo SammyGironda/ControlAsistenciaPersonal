@@ -692,9 +692,14 @@ def cerrar_periodo_asistencia(
     db: Session,
     anio: int,
     mes: int,
-    id_cerrado_por: Optional[int] = None,
+    id_cerrado_por: int,
 ) -> ResultadoCierrePeriodo:
-    """Recalcula todo el mes y lo marca como cerrado si no hay incidencias pendientes."""
+    """
+    Recalcula todo el mes y lo marca como cerrado si no hay incidencias pendientes.
+
+    id_cerrado_por es el id_empleado del usuario autenticado (resuelto en el
+    router vía get_actor_empleado_id) — ya no llega opcional del cliente.
+    """
     fecha_desde, fecha_hasta = obtener_rango_mes(anio, mes)
     periodo = get_periodo_asistencia(db, anio, mes)
 

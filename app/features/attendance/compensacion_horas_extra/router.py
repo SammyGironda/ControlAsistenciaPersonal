@@ -2,11 +2,11 @@
 Router para CompensacionHorasExtra - Registro admin-only de compensación de
 horas por trabajo en fin de semana o feriado no planeado.
 
-Ambos endpoints quedan detrás de require_admin() (SEMANA 9: placeholder
-no-op hasta que se active JWT real, ver app/core/deps.py). El insert es
-independiente de asistencia_diaria: funciona tanto si esa fecha ya tiene
-registro de asistencia_diaria como si aún no existe (se genera recién al
-procesar el Excel mensual).
+Ambos endpoints quedan detrás de require_admin(). id_registrado_por se
+deriva del usuario autenticado (get_actor_empleado_id), ya no se acepta del
+cliente. El insert es independiente de asistencia_diaria: funciona tanto si
+esa fecha ya tiene registro de asistencia_diaria como si aún no existe (se
+genera recién al procesar el Excel mensual).
 """
 
 from typing import List, Optional
@@ -14,7 +14,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import require_admin
+from app.core.deps import get_actor_empleado_id, get_current_user, require_admin
+from app.features.auth.usuario.models import Usuario
 from app.features.attendance.compensacion_horas_extra import services
 from app.features.attendance.compensacion_horas_extra.schemas import (
     CompensacionHorasExtraCreate,
@@ -33,7 +34,8 @@ router = APIRouter(prefix="/compensaciones-horas-extra", tags=["Compensación Ho
 )
 def crear_compensacion(
     data: CompensacionHorasExtraCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
 ):
     """
     Registra que un empleado trabajó un fin de semana o feriado no
@@ -65,7 +67,7 @@ def crear_compensacion(
         horas=data.horas,
         motivo=data.motivo,
         gestion=data.gestion,
-        id_registrado_por=data.id_registrado_por,
+        id_registrado_por=get_actor_empleado_id(current_user),
     )
 
     if compensacion is None:

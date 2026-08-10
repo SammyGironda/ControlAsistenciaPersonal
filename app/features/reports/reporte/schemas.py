@@ -12,40 +12,56 @@ from app.features.reports.reporte.models import TipoReporteEnum, FormatoReporteE
 
 
 class ReporteAsistenciaMensualRequest(BaseModel):
-    """Parametros para generar reporte de asistencia mensual en XLSX."""
+    """
+    Parametros para generar reporte de asistencia mensual en XLSX.
+
+    id_generado_por ya no se acepta del cliente: se deriva del usuario
+    autenticado (current_user.id_usuario) en el router.
+    """
 
     anio: int = Field(..., ge=2000, le=2100, description="Gestion a reportar")
     mes: int = Field(..., ge=1, le=12, description="Mes a reportar")
     id_departamento: Optional[int] = Field(None, gt=0, description="Filtro opcional por departamento")
     id_empleado: Optional[int] = Field(None, gt=0, description="Filtro opcional por empleado")
-    id_generado_por: Optional[int] = Field(None, gt=0, description="Usuario que genera el reporte")
 
 
 class ReportePlanillaRequest(BaseModel):
-    """Parametros para generar reporte de planilla en XLSX."""
+    """
+    Parametros para generar reporte de planilla en XLSX.
+
+    id_generado_por ya no se acepta del cliente: se deriva del usuario
+    autenticado (current_user.id_usuario) en el router.
+    """
 
     anio: int = Field(..., ge=2000, le=2100, description="Gestion a reportar")
     mes: int = Field(..., ge=1, le=12, description="Mes a reportar")
     id_departamento: Optional[int] = Field(None, gt=0, description="Filtro opcional por departamento")
     id_empleado: Optional[int] = Field(None, gt=0, description="Filtro opcional por empleado")
-    id_generado_por: Optional[int] = Field(None, gt=0, description="Usuario que genera el reporte")
 
 
 class ReporteVacacionesRequest(BaseModel):
-    """Parametros para generar reporte de vacaciones en XLSX."""
+    """
+    Parametros para generar reporte de vacaciones en XLSX.
+
+    id_generado_por ya no se acepta del cliente: se deriva del usuario
+    autenticado (current_user.id_usuario) en el router.
+    """
 
     gestion: int = Field(..., ge=2000, le=2100, description="Gestion a reportar")
     id_departamento: Optional[int] = Field(None, gt=0, description="Filtro opcional por departamento")
     id_empleado: Optional[int] = Field(None, gt=0, description="Filtro opcional por empleado")
-    id_generado_por: Optional[int] = Field(None, gt=0, description="Usuario que genera el reporte")
 
 
 class ReporteIndividualRequest(BaseModel):
-    """Parametros para generar reporte individual por empleado en PDF."""
+    """
+    Parametros para generar reporte individual por empleado en PDF.
+
+    id_generado_por ya no se acepta del cliente: se deriva del usuario
+    autenticado (current_user.id_usuario) en el router.
+    """
 
     fecha_inicio: date = Field(..., description="Fecha de inicio del periodo")
     fecha_fin: date = Field(..., description="Fecha de fin del periodo")
-    id_generado_por: Optional[int] = Field(None, gt=0, description="Usuario que genera el reporte")
 
     @field_validator("fecha_fin")
     @classmethod

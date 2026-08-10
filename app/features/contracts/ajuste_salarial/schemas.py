@@ -32,12 +32,16 @@ class AjusteSalarialBase(BaseModel):
 
 
 class AjusteSalarialCreate(BaseModel):
-    """Schema para crear un ajuste salarial."""
+    """
+    Schema para crear un ajuste salarial.
+
+    id_aprobado_por ya no se acepta del cliente: se deriva del usuario
+    autenticado (get_actor_empleado_id) en el router.
+    """
     id_empleado: int = Field(..., gt=0)
     salario_nuevo: Decimal = Field(..., gt=0, max_digits=10, decimal_places=2)
     fecha_vigencia: date = Field(..., description="Fecha desde la cual rige el nuevo salario")
     motivo: str = Field(..., pattern="^(decreto_anual|renovacion|ascenso|renegociacion)$")
-    id_aprobado_por: int = Field(..., gt=0, description="ID del empleado que aprobó el ajuste")
     observacion: Optional[str] = Field(None, max_length=5000)
     id_condicion_decreto: Optional[int] = Field(None, description="ID de la condición de decreto aplicada")
 
@@ -66,7 +70,6 @@ class AjusteSalarialCreate(BaseModel):
                 "fecha_vigencia": "2024-05-01",
                 "motivo": "decreto_anual",
                 "id_condicion_decreto": 1,
-                "id_aprobado_por": 5,
                 "observacion": "Aplicación DS 4984 - tramo 1"
             }
         }
@@ -249,19 +252,6 @@ class ParametroImpuestoResponse(ParametroImpuestoBase):
 # ============================================================
 # SCHEMAS AUXILIARES
 # ============================================================
-
-class AplicarDecretoRequest(BaseModel):
-    """Request para aplicar decreto a todos los empleados con contrato indefinido."""
-    id_aprobado_por: int = Field(..., gt=0, description="ID del empleado que aprueba la aplicación masiva")
-    
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "id_aprobado_por": 5
-            }
-        }
-    )
-
 
 class AplicarDecretoResponse(BaseModel):
     """Response de aplicación masiva de decreto."""

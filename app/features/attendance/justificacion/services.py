@@ -187,12 +187,15 @@ def _aplicar_viaje_trabajo_aprobado(db: Session, justificacion: JustificacionAus
 def aprobar_o_rechazar(
     db: Session,
     id: int,
-    data: AprobacionRequest
+    data: AprobacionRequest,
+    id_aprobado_por: int,
 ) -> JustificacionAusencia:
     """
     Aprueba o rechaza una justificación.
 
     Solo se puede cambiar el estado si está en 'pendiente'.
+    id_aprobado_por es el id_empleado del usuario autenticado (resuelto en el
+    router vía get_actor_empleado_id).
     """
     justificacion = obtener_justificacion(db, id)
 
@@ -209,7 +212,7 @@ def aprobar_o_rechazar(
         )
 
     justificacion.estado_aprobacion = data.estado
-    justificacion.id_aprobado_por = data.id_aprobado_por
+    justificacion.id_aprobado_por = id_aprobado_por
     justificacion.fecha_aprobacion = datetime.now()
 
     if data.observacion:

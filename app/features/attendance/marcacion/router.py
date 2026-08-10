@@ -9,7 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, Path, Uplo
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import require_roles
+from app.core.deps import get_actor_empleado_id, get_current_user, require_roles
+from app.features.auth.usuario.models import Usuario
 from app.features.attendance.marcacion import services
 from app.features.attendance.marcacion.schemas import (
     MarcacionCreate, MarcacionResponse, MarcacionConEmpleado,
@@ -38,8 +39,8 @@ router = APIRouter(
 )
 async def upload_excel_marcaciones(
     file: UploadFile = File(..., description="Archivo Excel (.xls o .xlsx)"),
-    id_subido_por: Optional[int] = Query(None, description="ID del usuario que sube el archivo"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
 ):
     """
     Procesa un archivo Excel de marcaciones.
@@ -61,7 +62,7 @@ async def upload_excel_marcaciones(
         )
 
     # Procesar archivo
-    resultado = services.procesar_archivo_excel(db, file, id_subido_por)
+    resultado = services.procesar_archivo_excel(db, file, current_user.id_usuario)
     return UploadExcelResponse(**resultado)
 
 
@@ -243,13 +244,13 @@ def resolver_incidencia(
                     "estado_resolucion": "resuelto",
                     "evidencia_url": "/docs/evidencias/incidencia_123.pdf",
                     "hora_correccion": "08:00",
-                    "id_resuelto_por": 1,
                     "tipo_marcacion_correccion": "SALIDA"
                 }
             }
         }
     ),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
 ):
     """
     Resuelve una incidencia de marcación.
@@ -259,5 +260,9 @@ def resolver_incidencia(
     **Evidencia obligatoria:** pasar a `estado_resolucion='resuelto'` requiere
     `evidencia_url` (en este body o ya guardada en la incidencia). Sin ella la
     petición falla con 400. Los estados 'pendiente' e 'ignorado' no la exigen.
+
+    **id_resuelto_por** se toma del usuario autenticado, no del body.
     """
-    return services.update_incidencia(db, incidencia_id, data)
+    return services.update_incidencia(
+        db, incidencia_id, data, id_resuelto_por=get_actor_empleado_id(current_user)
+    )

@@ -458,10 +458,15 @@ def _anexar_observacion(detalle: DetalleVacacion, estado: str, texto: str) -> No
 def cambiar_estado_detalle(
     db: Session,
     id: int,
-    data: CambiarEstadoRequest
+    data: CambiarEstadoRequest,
+    id_aprobado_por: Optional[int] = None,
 ) -> DetalleVacacion:
     """
     Cambia el estado de una solicitud de vacación.
+
+    id_aprobado_por es el id_empleado del usuario autenticado (resuelto en el
+    router); puede venir en None si ese usuario no tiene empleado vinculado —
+    la validación de abajo lo exige solo cuando el estado lo requiere.
 
     Flujo de estados permitidos:
     - solicitado -> aprobado (requiere id_aprobado_por)
@@ -508,10 +513,13 @@ def cambiar_estado_detalle(
 
     # Validar id_aprobado_por para estados que lo requieren
     if nuevo_estado in [EstadoDetalleVacacionEnum.aprobado, EstadoDetalleVacacionEnum.rechazado]:
-        if not data.id_aprobado_por:
+        if not id_aprobado_por:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"id_aprobado_por es requerido para cambiar a estado '{nuevo_estado}'"
+                detail=(
+                    f"Tu usuario no está vinculado a un empleado; no puede cambiar el estado a "
+                    f"'{nuevo_estado}'"
+                )
             )
 
     # Obtener la vacación asociada
@@ -579,8 +587,8 @@ def cambiar_estado_detalle(
     # Aplicar el cambio de estado
     detalle.estado = nuevo_estado
 
-    if data.id_aprobado_por:
-        detalle.id_aprobado_por = data.id_aprobado_por
+    if id_aprobado_por:
+        detalle.id_aprobado_por = id_aprobado_por
 
     # Agregar observación
     if nota_automatica:

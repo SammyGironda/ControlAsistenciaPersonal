@@ -199,7 +199,9 @@ def ruta_reporte_descarga(db: Session, reporte_id: int) -> Path:
     return ruta
 
 
-def generar_reporte_asistencia_mensual(db: Session, data: ReporteAsistenciaMensualRequest) -> Reporte:
+def generar_reporte_asistencia_mensual(
+    db: Session, data: ReporteAsistenciaMensualRequest, id_generado_por: int
+) -> Reporte:
     """Genera reporte mensual de asistencia en formato XLSX."""
 
     periodo_inicio, periodo_fin = _periodo_mes(data.anio, data.mes)
@@ -254,7 +256,7 @@ def generar_reporte_asistencia_mensual(db: Session, data: ReporteAsistenciaMensu
         db,
         nombre=f"Reporte Asistencia Mensual {data.anio}-{str(data.mes).zfill(2)}",
         tipo_reporte=TipoReporteEnum.asistencia_mensual,
-        id_generado_por=data.id_generado_por,
+        id_generado_por=id_generado_por,
         id_departamento=data.id_departamento,
         id_empleado=data.id_empleado,
         periodo_inicio=periodo_inicio,
@@ -264,7 +266,7 @@ def generar_reporte_asistencia_mensual(db: Session, data: ReporteAsistenciaMensu
     )
 
 
-def generar_reporte_planilla(db: Session, data: ReportePlanillaRequest) -> Reporte:
+def generar_reporte_planilla(db: Session, data: ReportePlanillaRequest, id_generado_por: int) -> Reporte:
     """Genera reporte de planilla mensual en formato XLSX."""
 
     periodo_inicio, periodo_fin = _periodo_mes(data.anio, data.mes)
@@ -316,7 +318,7 @@ def generar_reporte_planilla(db: Session, data: ReportePlanillaRequest) -> Repor
         db,
         nombre=f"Reporte Planilla {data.anio}-{str(data.mes).zfill(2)}",
         tipo_reporte=TipoReporteEnum.planilla,
-        id_generado_por=data.id_generado_por,
+        id_generado_por=id_generado_por,
         id_departamento=data.id_departamento,
         id_empleado=data.id_empleado,
         periodo_inicio=periodo_inicio,
@@ -326,7 +328,7 @@ def generar_reporte_planilla(db: Session, data: ReportePlanillaRequest) -> Repor
     )
 
 
-def generar_reporte_vacaciones(db: Session, data: ReporteVacacionesRequest) -> Reporte:
+def generar_reporte_vacaciones(db: Session, data: ReporteVacacionesRequest, id_generado_por: int) -> Reporte:
     """Genera reporte de vacaciones por gestion en formato XLSX."""
 
     periodo_inicio = date(data.gestion, 1, 1)
@@ -381,7 +383,7 @@ def generar_reporte_vacaciones(db: Session, data: ReporteVacacionesRequest) -> R
         db,
         nombre=f"Reporte Vacaciones {data.gestion}",
         tipo_reporte=TipoReporteEnum.vacaciones,
-        id_generado_por=data.id_generado_por,
+        id_generado_por=id_generado_por,
         id_departamento=data.id_departamento,
         id_empleado=data.id_empleado,
         periodo_inicio=periodo_inicio,
@@ -392,7 +394,7 @@ def generar_reporte_vacaciones(db: Session, data: ReporteVacacionesRequest) -> R
 
 
 def generar_reporte_individual_pdf(
-    db: Session, id_empleado: int, data: ReporteIndividualRequest
+    db: Session, id_empleado: int, data: ReporteIndividualRequest, id_generado_por: int
 ) -> Reporte:
     """Genera reporte individual de un empleado en formato PDF."""
 
@@ -516,7 +518,7 @@ def generar_reporte_individual_pdf(
         db,
         nombre=f"Reporte Individual Empleado {id_empleado}",
         tipo_reporte=TipoReporteEnum.individual,
-        id_generado_por=data.id_generado_por,
+        id_generado_por=id_generado_por,
         id_departamento=empleado.id_departamento,
         id_empleado=id_empleado,
         periodo_inicio=data.fecha_inicio,

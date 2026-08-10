@@ -10,7 +10,8 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import require_admin
+from app.core.deps import get_current_user, require_admin, require_roles
+from app.features.auth.usuario.models import Usuario
 from app.features.reports.reporte import services
 from app.features.reports.reporte.models import TipoReporteEnum, FormatoReporteEnum
 from app.features.reports.reporte.schemas import (
@@ -31,11 +32,16 @@ router = APIRouter(prefix="/reportes", tags=["Reportes"])
     response_model=ReporteResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Generar reporte de asistencia mensual (XLSX)",
+    dependencies=[Depends(require_roles("admin", "rrhh"))],
 )
-def generar_asistencia_mensual(data: ReporteAsistenciaMensualRequest, db: Session = Depends(get_db)):
+def generar_asistencia_mensual(
+    data: ReporteAsistenciaMensualRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
     """Genera y registra reporte de asistencia mensual."""
 
-    return services.generar_reporte_asistencia_mensual(db, data)
+    return services.generar_reporte_asistencia_mensual(db, data, current_user.id_usuario)
 
 
 @router.post(
@@ -43,11 +49,16 @@ def generar_asistencia_mensual(data: ReporteAsistenciaMensualRequest, db: Sessio
     response_model=ReporteResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Generar reporte de planilla (XLSX)",
+    dependencies=[Depends(require_roles("admin", "rrhh"))],
 )
-def generar_planilla(data: ReportePlanillaRequest, db: Session = Depends(get_db)):
+def generar_planilla(
+    data: ReportePlanillaRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
     """Genera y registra reporte mensual de planilla."""
 
-    return services.generar_reporte_planilla(db, data)
+    return services.generar_reporte_planilla(db, data, current_user.id_usuario)
 
 
 @router.post(
@@ -55,11 +66,16 @@ def generar_planilla(data: ReportePlanillaRequest, db: Session = Depends(get_db)
     response_model=ReporteResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Generar reporte de vacaciones (XLSX)",
+    dependencies=[Depends(require_roles("admin", "rrhh"))],
 )
-def generar_vacaciones(data: ReporteVacacionesRequest, db: Session = Depends(get_db)):
+def generar_vacaciones(
+    data: ReporteVacacionesRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
     """Genera y registra reporte de vacaciones por gestion."""
 
-    return services.generar_reporte_vacaciones(db, data)
+    return services.generar_reporte_vacaciones(db, data, current_user.id_usuario)
 
 
 @router.post(
@@ -67,11 +83,17 @@ def generar_vacaciones(data: ReporteVacacionesRequest, db: Session = Depends(get
     response_model=ReporteResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Generar reporte individual por empleado (PDF)",
+    dependencies=[Depends(require_roles("admin", "rrhh"))],
 )
-def generar_individual(id_empleado: int, data: ReporteIndividualRequest, db: Session = Depends(get_db)):
+def generar_individual(
+    id_empleado: int,
+    data: ReporteIndividualRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
     """Genera y registra reporte individual de un empleado en PDF."""
 
-    return services.generar_reporte_individual_pdf(db, id_empleado, data)
+    return services.generar_reporte_individual_pdf(db, id_empleado, data, current_user.id_usuario)
 
 
 @router.get(

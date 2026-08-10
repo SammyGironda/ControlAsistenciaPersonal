@@ -25,9 +25,9 @@ class CompensacionHorasExtraCreate(BaseModel):
         None, ge=2020, le=2100,
         description="Gestión (año) de vacacion a la que se acredita. Si se omite, se usa el año de 'fecha'"
     )
-    id_registrado_por: Optional[int] = Field(
-        None, description="ID del empleado/admin que registra (JWT real aún no activo, se pasa explícito)"
-    )
+
+    # id_registrado_por ya no se acepta del cliente: se deriva del usuario
+    # autenticado (get_actor_empleado_id) en el router.
 
 
 class CompensacionHorasExtraResponse(BaseModel):

@@ -9,7 +9,8 @@ from fastapi import APIRouter, Depends, Query, Body, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import require_admin, require_roles
+from app.core.deps import get_current_user, require_admin, require_roles
+from app.features.auth.usuario.models import Usuario
 from app.features.attendance.vacaciones import services
 from app.features.attendance.vacaciones.schemas import (
     VacacionCreate,
@@ -321,19 +322,21 @@ def actualizar_detalle_vacacion(
 def cambiar_estado_detalle(
     id: int,
     data: CambiarEstadoRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
 ):
     """
     Cambia el estado de una solicitud de vacación.
 
     **Transiciones válidas:**
-    - solicitado → aprobado (requiere id_aprobado_por)
-    - solicitado → rechazado (requiere id_aprobado_por)
+    - solicitado → aprobado (requiere que el usuario autenticado tenga empleado vinculado)
+    - solicitado → rechazado (ídem)
     - aprobado → tomado (cuando el empleado efectivamente toma la vacación)
     - solicitado/aprobado → cancelado (cancelación voluntaria)
 
     **Validaciones:**
-    - Para aprobar/rechazar se requiere id_aprobado_por
+    - Para aprobar/rechazar, el usuario autenticado debe tener empleado vinculado
+      (id_aprobado_por se deriva de la sesión, no se acepta del cliente)
     - Al aprobar se valida que haya horas disponibles
     - Al tomar se descuentan las horas del saldo
     - Al cancelar se recalcula el saldo si estaba aprobado
@@ -343,7 +346,7 @@ def cambiar_estado_detalle(
     que enviar `cubrir_con_saldo_vacacional=true`, confirmando que RRHH y el
     empleado acordaron cubrir la licencia con el saldo de vacaciones.
     """
-    return services.cambiar_estado_detalle(db, id, data)
+    return services.cambiar_estado_detalle(db, id, data, id_aprobado_por=current_user.id_empleado)
 
 
 @router.delete(

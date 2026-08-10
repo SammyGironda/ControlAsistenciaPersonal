@@ -92,9 +92,13 @@ class JustificacionAusenciaUpdate(BaseModel):
 
 
 class AprobacionRequest(BaseModel):
-    """Schema para aprobar o rechazar una justificación."""
+    """
+    Schema para aprobar o rechazar una justificación.
+
+    id_aprobado_por ya no se acepta del cliente: se deriva del usuario
+    autenticado (get_actor_empleado_id) en el router.
+    """
     estado: EstadoAprobacionEnum = Field(..., description="aprobado o rechazado")
-    id_aprobado_por: int = Field(..., gt=0, description="ID del aprobador")
     observacion: Optional[str] = Field(None, max_length=500, description="Comentarios del aprobador")
 
 

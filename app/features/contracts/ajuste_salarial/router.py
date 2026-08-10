@@ -1,6 +1,9 @@
 """
 Router para endpoints de Ajuste Salarial, Decretos e Impuestos.
-Todos los endpoints están abiertos (sin autenticación hasta Semana 9).
+
+create_ajuste_salarial y aplicar_decreto exigen admin/rrhh y derivan
+id_aprobado_por del usuario autenticado (get_actor_empleado_id); el resto de
+endpoints de este router sigue sin guard (fuera de alcance de este cambio).
 """
 
 from typing import List, Optional
@@ -9,7 +12,8 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, Path
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import require_admin
+from app.core.deps import get_actor_empleado_id, get_current_user, require_admin, require_roles
+from app.features.auth.usuario.models import Usuario
 from app.features.contracts.ajuste_salarial import services
 from app.features.contracts.ajuste_salarial.schemas import (
     AjusteSalarialCreate,
@@ -18,7 +22,6 @@ from app.features.contracts.ajuste_salarial.schemas import (
     DecretoResponse,
     ParametroImpuestoCreate,
     ParametroImpuestoResponse,
-    AplicarDecretoRequest,
     AplicarDecretoResponse
 )
 
@@ -37,20 +40,24 @@ router = APIRouter(
     response_model=AjusteSalarialResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Crear ajuste salarial",
-    description="Registra un nuevo ajuste salarial para contratos indefinidos a partir del ID del empleado. El backend resuelve el contrato vigente y el salario actual."
+    description="Registra un nuevo ajuste salarial para contratos indefinidos a partir del ID del empleado. El backend resuelve el contrato vigente y el salario actual.",
+    dependencies=[Depends(require_roles("admin", "rrhh"))],
 )
 def create_ajuste_salarial(
     data: AjusteSalarialCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
 ):
     """
     Crea un nuevo ajuste salarial para contratos indefinidos.
-    
+
     El backend obtiene el contrato vigente y el salario actual del empleado.
     El trigger trg_sync_salario_empleado actualiza automáticamente
     empleado.salario_base si fecha_vigencia <= hoy.
+
+    id_aprobado_por se toma del usuario autenticado, no del body.
     """
-    return services.create_ajuste_salarial(db, data)
+    return services.create_ajuste_salarial(db, data, id_aprobado_por=get_actor_empleado_id(current_user))
 
 
 @router.get(
@@ -170,21 +177,22 @@ def get_decreto_anio(
 )
 def aplicar_decreto(
     decreto_id: int = Path(..., gt=0),
-    data: AplicarDecretoRequest = ...,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
 ):
     """
     Aplica un decreto anual a todos los empleados.
-    
+
     Proceso:
     - Itera sobre empleados con contrato indefinido activo
     - Calcula el porcentaje de incremento según su salario
     - Crea ajuste_salarial para cada uno
     - El trigger actualiza empleado.salario_base automáticamente
-    
+
+    id_aprobado_por se toma del usuario autenticado, no del body.
     Retorna estadísticas de la aplicación.
     """
-    resultado = services.aplicar_decreto_anual(db, decreto_id, data.id_aprobado_por)
+    resultado = services.aplicar_decreto_anual(db, decreto_id, get_actor_empleado_id(current_user))
     return AplicarDecretoResponse(**resultado)
 
 

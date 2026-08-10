@@ -8,7 +8,8 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import require_admin, require_roles
+from app.core.deps import get_actor_empleado_id, get_current_user, require_admin, require_roles
+from app.features.auth.usuario.models import Usuario
 from app.features.attendance.justificacion import services
 from app.features.attendance.justificacion.schemas import (
     JustificacionAusenciaCreate,
@@ -121,14 +122,15 @@ def listar_pendientes(
 def aprobar_rechazar(
     id: int,
     data: AprobacionRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
 ):
     """
     Aprueba o rechaza una justificación pendiente.
 
     **Requisitos:**
     - La justificación debe estar en estado 'pendiente'
-    - Se requiere el ID del aprobador
+    - El usuario autenticado debe tener empleado vinculado (se registra como aprobador)
     - Opcionalmente se pueden agregar observaciones
 
     **Efecto:**
@@ -136,7 +138,9 @@ def aprobar_rechazar(
     - Registra fecha de aprobación
     - Registra quién aprobó/rechazó
     """
-    return services.aprobar_o_rechazar(db, id, data)
+    return services.aprobar_o_rechazar(
+        db, id, data, id_aprobado_por=get_actor_empleado_id(current_user)
+    )
 
 
 @router.put(

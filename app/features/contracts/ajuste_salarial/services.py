@@ -26,16 +26,19 @@ from app.features.employees.empleado.models import Empleado, EstadoEmpleadoEnum
 # AJUSTE SALARIAL - CRUD
 # ============================================================
 
-def create_ajuste_salarial(db: Session, data: AjusteSalarialCreate) -> AjusteSalarial:
+def create_ajuste_salarial(db: Session, data: AjusteSalarialCreate, id_aprobado_por: int) -> AjusteSalarial:
     """
     Crea un nuevo ajuste salarial.
-    
+
+    id_aprobado_por es el id_empleado del usuario autenticado (resuelto en el
+    router vía get_actor_empleado_id) — siempre viene no-nulo.
+
     Validaciones:
     - El empleado debe existir
     - El empleado debe tener un contrato indefinido activo y vigente
     - salario_nuevo debe ser diferente al salario actual del empleado
     - El ajuste salarial manual solo aplica a contratos indefinidos
-    
+
     IMPORTANTE: Al insertar, el trigger trg_sync_salario_empleado actualiza
     automáticamente empleado.salario_base si fecha_vigencia <= hoy.
     """
@@ -68,12 +71,6 @@ def create_ajuste_salarial(db: Session, data: AjusteSalarialCreate) -> AjusteSal
         )
 
     motivo = MotivoAjusteEnum(data.motivo)
-
-    if data.id_aprobado_por is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="id_aprobado_por es obligatorio para registrar un ajuste salarial"
-        )
 
     if motivo == MotivoAjusteEnum.decreto_anual and data.id_condicion_decreto is None:
         raise HTTPException(
@@ -108,11 +105,11 @@ def create_ajuste_salarial(db: Session, data: AjusteSalarialCreate) -> AjusteSal
                 detail=f"No existe la condición de decreto con ID {data.id_condicion_decreto}"
             )
 
-    aprobador = db.query(Empleado).filter(Empleado.id == data.id_aprobado_por).first()
+    aprobador = db.query(Empleado).filter(Empleado.id == id_aprobado_por).first()
     if not aprobador:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No existe el empleado aprobador con ID {data.id_aprobado_por}"
+            detail=f"No existe el empleado aprobador con ID {id_aprobado_por}"
         )
 
     # Crear ajuste solo cuando todas las validaciones ya pasaron.
@@ -124,7 +121,7 @@ def create_ajuste_salarial(db: Session, data: AjusteSalarialCreate) -> AjusteSal
         salario_nuevo=data.salario_nuevo,
         fecha_vigencia=data.fecha_vigencia,
         motivo=motivo,
-        id_aprobado_por=data.id_aprobado_por,
+        id_aprobado_por=id_aprobado_por,
         observacion=data.observacion,
     )
 

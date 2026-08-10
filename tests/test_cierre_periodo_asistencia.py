@@ -16,7 +16,7 @@ def test_cerrar_periodo_rechaza_incidencias_pendientes(monkeypatch):
     monkeypatch.setattr(services, "hay_incidencias_pendientes_periodo", lambda *_: True)
 
     with pytest.raises(HTTPException) as error:
-        services.cerrar_periodo_asistencia(object(), 2026, 1)
+        services.cerrar_periodo_asistencia(object(), 2026, 1, id_cerrado_por=9)
 
     assert error.value.status_code == 409
 

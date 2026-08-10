@@ -104,9 +104,13 @@ class DetalleVacacionUpdate(BaseModel):
 
 
 class CambiarEstadoRequest(BaseModel):
-    """Schema para cambiar el estado de una solicitud."""
+    """
+    Schema para cambiar el estado de una solicitud.
+
+    id_aprobado_por ya no se acepta del cliente: se deriva del usuario
+    autenticado (requerido solo para aprobar/rechazar, ver services.py).
+    """
     nuevo_estado: EstadoDetalleVacacionEnum = Field(..., description="Nuevo estado")
-    id_aprobado_por: Optional[int] = Field(None, description="ID del aprobador (requerido para aprobar/rechazar)")
     observacion: Optional[str] = Field(None, max_length=500, description="Observaciones del cambio")
     cubrir_con_saldo_vacacional: bool = Field(
         False,

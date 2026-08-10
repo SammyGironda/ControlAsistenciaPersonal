@@ -13,9 +13,15 @@ dependencies=[Depends(require_roles("admin", "rrhh"))] en el decorador del
 endpoint — mismo patrón ya presente en horario_personalizado/router.py y
 compensacion_horas_extra/router.py.
 
+get_actor_empleado_id() resuelve el id_empleado del usuario autenticado para poblar
+columnas de auditoría con FK a empleado (id_aprobado_por, id_resuelto_por,
+id_cerrado_por, id_registrado_por) — ver 2026-08-10, "Reemplazar campos *_por
+client-supplied por el actor autenticado". Para columnas con FK a usuario
+(id_generado_por, id_subido_por) alcanza con current_user.id_usuario directo.
+
 TODO (sesión siguiente): aplicar estos guards al resto de routers que todavía
-quedan completamente abiertos, y usar current_user (vía Depends(get_current_user)
-directo, no solo dependencies=[]) para poblar id_generado_por/id_aprobado_por.
+quedan completamente abiertos (fuera de los 13 endpoints ya cubiertos por el
+cambio de 2026-08-10).
 
 Nota sobre imports: la dirección es siempre deps -> features/auth/usuario/services.
 Si algún día usuario/services.py importara este módulo habría un ciclo.
@@ -117,3 +123,21 @@ def require_admin(current_user: Usuario = Depends(get_current_user)) -> Usuario:
     if current_user.rol.nombre.lower() != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acceso restringido a: admin")
     return current_user
+
+
+def get_actor_empleado_id(current_user: Usuario) -> int:
+    """
+    Resuelve el id_empleado del usuario autenticado, para poblar columnas de
+    auditoría que tienen FK a empleado (no a usuario): id_aprobado_por,
+    id_resuelto_por, id_cerrado_por, id_registrado_por.
+
+    usuario.id_empleado es nullable (p.ej. el admin del seed no está vinculado
+    a un empleado) — 400 en vez de guardar NULL silenciosamente, para que
+    siempre haya una persona real detrás de una aprobación/resolución/cierre.
+    """
+    if current_user.id_empleado is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Tu usuario no está vinculado a un empleado; no puede registrar esta acción.",
+        )
+    return current_user.id_empleado
