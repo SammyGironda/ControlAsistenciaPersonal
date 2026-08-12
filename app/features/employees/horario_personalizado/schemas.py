@@ -76,12 +76,7 @@ class HorarioPersonalizadoEmpleadoResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    model_config = ConfigDict(
-        from_attributes=True,
-        json_encoders={
-            datetime: lambda v: v.isoformat() if v else None
-        }
-    )
+    model_config = ConfigDict(from_attributes=True)
 
     @field_serializer('hora_entrada', 'hora_salida', when_used='json')
     def serialize_time_simple(self, value: Optional[time]) -> Optional[str]:

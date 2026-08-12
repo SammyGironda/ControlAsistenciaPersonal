@@ -3,7 +3,7 @@ Configuración central de la aplicación.
 Lee las variables de entorno desde .env usando pydantic-settings.
 """
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 from typing import List
 
@@ -50,10 +50,13 @@ class Settings(BaseSettings):
         """Orígenes CORS normalizados: sin espacios sobrantes ni entradas vacías."""
         return [origen.strip() for origen in self.ALLOWED_ORIGINS.split(",") if origen.strip()]
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = True
+    # SettingsConfigDict y no ConfigDict: es un BaseSettings, y env_file /
+    # case_sensitive son opciones de pydantic-settings, no de Pydantic a secas.
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+    )
 
 
 @lru_cache

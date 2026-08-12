@@ -19,13 +19,24 @@ id_cerrado_por, id_registrado_por) — ver 2026-08-10, "Reemplazar campos *_por
 client-supplied por el actor autenticado". Para columnas con FK a usuario
 (id_generado_por, id_subido_por) alcanza con current_user.id_usuario directo.
 
+exigir_lectura_de_empleado() / exigir_gestion_de_empleado() / alcance_lectura()
+son el guard de PERTENENCIA, no de rol: contestan "¿este recurso es de este
+usuario?" para los endpoints donde un empleado accede a lo suyo (ver 2026-08-12,
+RBAC de /vacaciones). Son funciones normales, no dependencias de FastAPI: el
+id_empleado dueño casi nunca está en la request — hay que leerlo de la base
+primero (p.ej. vacacion.id_empleado a partir del id_vacacion del path), así que
+la comprobación va en el cuerpo del endpoint, después de resolver el dueño y
+ANTES de mutar nada.
+
 TODO (sesión siguiente): aplicar estos guards al resto de routers que todavía
 quedan completamente abiertos (fuera de los 13 endpoints ya cubiertos por el
-cambio de 2026-08-10).
+cambio de 2026-08-10 y los 17 de /vacaciones cubiertos el 2026-08-12).
 
 Nota sobre imports: la dirección es siempre deps -> features/auth/usuario/services.
 Si algún día usuario/services.py importara este módulo habría un ciclo.
 """
+
+from typing import Optional
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -141,3 +152,92 @@ def get_actor_empleado_id(current_user: Usuario) -> int:
             detail="Tu usuario no está vinculado a un empleado; no puede registrar esta acción.",
         )
     return current_user.id_empleado
+
+
+# ============================================================
+# Pertenencia: "¿este recurso es de este usuario?"
+# ============================================================
+#
+# Los dos alcances son distintos a propósito y por eso son dos helpers:
+# un supervisor necesita LEER los datos de cualquier empleado para poder evaluar
+# una solicitud (sin ver el saldo no puede aprobar con criterio), pero no debe
+# poder CREAR ni editar solicitudes en nombre de otro.
+
+ROLES_GESTORES = frozenset({"admin", "rrhh"})
+ROLES_LECTURA_TOTAL = frozenset({"admin", "rrhh", "supervisor"})
+ROLES_APROBADORES = frozenset({"admin", "rrhh", "supervisor"})
+
+
+def _nombre_rol(current_user: Usuario) -> str:
+    return current_user.rol.nombre.lower()
+
+
+def es_gestor(current_user: Usuario) -> bool:
+    """True si el usuario puede gestionar registros de cualquier empleado (admin/rrhh)."""
+    return _nombre_rol(current_user) in ROLES_GESTORES
+
+
+def puede_leer_todo(current_user: Usuario) -> bool:
+    """True si el usuario puede consultar registros de cualquier empleado (admin/rrhh/supervisor)."""
+    return _nombre_rol(current_user) in ROLES_LECTURA_TOTAL
+
+
+def es_aprobador(current_user: Usuario) -> bool:
+    """
+    True si el usuario puede aprobar/rechazar solicitudes ajenas (admin/rrhh/supervisor).
+
+    Hoy coincide en valor con ROLES_LECTURA_TOTAL, pero se declara aparte a
+    propósito: son decisiones distintas (leer vs. resolver) y usar el helper de
+    lectura para autorizar una escritura haría silencioso el día que diverjan.
+    """
+    return _nombre_rol(current_user) in ROLES_APROBADORES
+
+
+def exigir_lectura_de_empleado(current_user: Usuario, id_empleado: int) -> None:
+    """
+    Permite la consulta si el usuario lee de todos (admin/rrhh/supervisor) o si el
+    recurso es del propio empleado vinculado a su cuenta. Si no, 403.
+
+    El 400 de get_actor_empleado_id (cuenta sin empleado vinculado) se propaga tal
+    cual: es el mismo diagnóstico y ya tiene un mensaje accionable.
+    """
+    if puede_leer_todo(current_user):
+        return
+
+    if get_actor_empleado_id(current_user) != id_empleado:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo puedes consultar tus propios registros de vacaciones.",
+        )
+
+
+def exigir_gestion_de_empleado(current_user: Usuario, id_empleado: int) -> None:
+    """
+    Permite crear/modificar si el usuario es gestor (admin/rrhh) o si el recurso es
+    del propio empleado vinculado a su cuenta. Si no, 403.
+
+    Nota: un supervisor NO pasa este guard sobre registros ajenos. Aprueba
+    solicitudes (require_roles en cambiar-estado), no las crea por otros.
+    """
+    if es_gestor(current_user):
+        return
+
+    if get_actor_empleado_id(current_user) != id_empleado:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo puedes gestionar tus propias solicitudes de vacación.",
+        )
+
+
+def alcance_lectura(current_user: Usuario) -> Optional[int]:
+    """
+    Filtro de empleado que un listado debe aplicar para este usuario.
+
+    None = sin restricción (admin/rrhh/supervisor). Cualquier otro rol recibe su
+    propio id_empleado, que el endpoint debe usar PISANDO el filtro que haya
+    mandado el cliente — si no, bastaría con omitirlo para ver todo.
+    """
+    if puede_leer_todo(current_user):
+        return None
+
+    return get_actor_empleado_id(current_user)

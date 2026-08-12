@@ -5,7 +5,7 @@ Validación de datos para el saldo vacacional.
 
 from datetime import date, datetime
 from typing import Optional
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from enum import Enum
 from decimal import Decimal
 
@@ -63,8 +63,7 @@ class VacacionResponse(VacacionBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ===== SCHEMAS PARA DETALLE_VACACION =====
@@ -132,8 +131,7 @@ class DetalleVacacionResponse(DetalleVacacionBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ===== SCHEMAS PARA EL CÁLCULO DE HORAS HÁBILES =====

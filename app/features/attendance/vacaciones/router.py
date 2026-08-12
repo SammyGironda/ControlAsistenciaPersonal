@@ -1,15 +1,40 @@
 """
 Router para Vacacion y DetalleVacacion - Endpoints REST para gestión de vacaciones.
+
+RBAC (2026-08-12): todos los endpoints exigen un JWT válido. Sobre eso se aplican
+dos capas, según lo que haga cada uno:
+
+- **Rol** (`require_roles` / `require_admin` en el decorador) para lo que es
+  gestión pura del saldo vacacional — crearlo, editarlo, incrementarlo, borrarlo —
+  y para la cola de aprobación.
+- **Pertenencia** (`exigir_lectura_de_empleado` / `exigir_gestion_de_empleado` /
+  `alcance_lectura`, en el cuerpo) para lo que un empleado hace sobre lo suyo.
+  Va en el cuerpo y no en el decorador porque el id_empleado dueño casi nunca
+  viene en la request: hay que resolverlo antes contra la base
+  (`services.obtener_empleado_de_vacacion` / `_de_detalle`).
+
+Reparto por rol: admin/rrhh gestionan a cualquier empleado · supervisor consulta
+a cualquiera y aprueba/rechaza · empleado consulta, crea, edita y cancela lo
+suyo. Los listados no devuelven 403 a un empleado: se le fuerza el filtro a su
+propio id_empleado (`alcance_lectura`), pisando el que haya mandado.
 """
 
 from datetime import date
 from typing import List, Optional
 from decimal import Decimal
-from fastapi import APIRouter, Depends, Query, Body, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Body, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import get_current_user, require_admin, require_roles
+from app.core.deps import (
+    alcance_lectura,
+    es_aprobador,
+    exigir_gestion_de_empleado,
+    exigir_lectura_de_empleado,
+    get_current_user,
+    require_admin,
+    require_roles,
+)
 from app.features.auth.usuario.models import Usuario
 from app.features.attendance.vacaciones import services
 from app.features.attendance.vacaciones.schemas import (
@@ -59,7 +84,11 @@ def calcular_horas_habiles(
     **descanso tiene precedencia sobre feriado**.
 
     Sin guard de rol a propósito: un empleado debe poder previsualizar lo suyo.
+    Sí hay guard de pertenencia — sólo admin/rrhh/supervisor pueden calcular el de
+    otro empleado.
     """
+    exigir_lectura_de_empleado(current_user, id_empleado)
+
     return services.calcular_horas_habiles_rango(db, id_empleado, fecha_inicio, fecha_fin)
 
 
@@ -84,7 +113,11 @@ def asegurar_gestion(
 
     Existe porque crear un `detalle_vacacion` exige un `id_vacacion` y casi ningún
     empleado tiene todavía su registro de vacación.
+
+    Un empleado sólo puede asegurar su propia gestión; admin/rrhh, la de cualquiera.
     """
+    exigir_gestion_de_empleado(current_user, data.id_empleado)
+
     vacacion, fue_creada = services.asegurar_vacacion_gestion(
         db, data.id_empleado, data.gestion
     )
@@ -101,7 +134,8 @@ def asegurar_gestion(
     "/",
     response_model=VacacionResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Crear registro de vacación"
+    summary="Crear registro de vacación",
+    dependencies=[Depends(require_roles("admin", "rrhh"))],
 )
 def crear_vacacion(
     data: VacacionCreate,
@@ -110,7 +144,9 @@ def crear_vacacion(
     """
     Crea un nuevo registro de vacación para un empleado y gestión.
 
-    **Normalmente este endpoint es llamado automáticamente por el worker de fin de año.**
+    **Solo admin/rrhh:** fija el saldo anual con las horas que se le acreditan al
+    empleado, así que no puede quedar en manos del propio empleado. El alta normal
+    la hace `POST /asegurar-gestion`, que deriva las horas de la LGT.
 
     Validaciones:
     - No puede haber duplicados (id_empleado, gestion)
@@ -126,10 +162,19 @@ def crear_vacacion(
 )
 def obtener_vacacion(
     id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
 ):
-    """Obtiene un registro de vacación específico por su ID."""
-    return services.obtener_vacacion(db, id)
+    """
+    Obtiene un registro de vacación específico por su ID.
+
+    Un empleado sólo puede ver el suyo; admin/rrhh/supervisor, el de cualquiera.
+    Un ID inexistente devuelve 404 (no 403), venga de quien venga.
+    """
+    vacacion = services.obtener_vacacion(db, id)
+    exigir_lectura_de_empleado(current_user, vacacion.id_empleado)
+
+    return vacacion
 
 
 @router.get(
@@ -140,13 +185,20 @@ def obtener_vacacion(
 def obtener_vacacion_empleado_gestion(
     id_empleado: int,
     gestion: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
 ):
     """
     Obtiene el registro de vacación de un empleado para una gestión específica.
 
     Retorna None si no existe el registro para esa combinación.
+
+    Un empleado sólo puede consultar el suyo. El guard corre ANTES de la consulta:
+    pedir el de otro empleado da 403 aunque no exista el registro, para no filtrar
+    por diferencia de respuesta quién tiene saldo cargado y quién no.
     """
+    exigir_lectura_de_empleado(current_user, id_empleado)
+
     return services.obtener_vacacion_por_empleado_gestion(db, id_empleado, gestion)
 
 
@@ -160,7 +212,8 @@ def listar_vacaciones(
     gestion: Optional[int] = Query(None, description="Filtrar por año"),
     skip: int = Query(0, ge=0, description="Registros a omitir"),
     limit: int = Query(100, ge=1, le=500, description="Límite de registros"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
 ):
     """
     Lista registros de vacaciones con filtros opcionales.
@@ -168,7 +221,15 @@ def listar_vacaciones(
     **Filtros disponibles:**
     - `id_empleado`: filtrar por empleado específico
     - `gestion`: filtrar por año
+
+    A un rol sin lectura total (`empleado`, `consulta`) se le fuerza `id_empleado`
+    al suyo, pisando el que haya enviado: si no, omitir el filtro devolvería el
+    padrón completo.
     """
+    alcance = alcance_lectura(current_user)
+    if alcance is not None:
+        id_empleado = alcance
+
     return services.listar_vacaciones(
         db,
         id_empleado=id_empleado,
@@ -181,7 +242,8 @@ def listar_vacaciones(
 @router.put(
     "/{id:int}",
     response_model=VacacionResponse,
-    summary="Actualizar registro de vacación"
+    summary="Actualizar registro de vacación",
+    dependencies=[Depends(require_roles("admin", "rrhh"))],
 )
 def actualizar_vacacion(
     id: int,
@@ -192,6 +254,9 @@ def actualizar_vacacion(
     Actualiza los datos de un registro de vacación existente.
 
     Permite modificar las horas de goce/sin goce de haber y observaciones.
+
+    **Solo admin/rrhh:** son las bolsas contra las que se valida al pasar una
+    solicitud a 'tomado'.
     """
     return services.actualizar_vacacion(db, id, data)
 
@@ -219,7 +284,8 @@ def eliminar_vacacion(
 @router.post(
     "/{id:int}/incrementar-horas",
     response_model=VacacionResponse,
-    summary="Incrementar horas de vacación"
+    summary="Incrementar horas de vacación",
+    dependencies=[Depends(require_roles("admin", "rrhh"))],
 )
 def incrementar_horas(
     id: int,
@@ -237,6 +303,8 @@ def incrementar_horas(
     **Parámetros:**
     - `horas`: cantidad de horas a sumar
     - `tipo`: 'goce_haber' (default) o 'sin_goce_haber'
+
+    **Solo admin/rrhh:** acredita saldo vacacional, nunca lo hace el propio empleado.
     """
     return services.incrementar_horas(db, id, horas, tipo)
 
@@ -252,7 +320,8 @@ def incrementar_horas(
 def crear_detalle_vacacion(
     id_vacacion: int,
     data: DetalleVacacionCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
 ):
     """
     Crea una nueva solicitud de vacación para un registro de vacación.
@@ -264,7 +333,16 @@ def crear_detalle_vacacion(
     - El registro de vacación debe existir
 
     **Estado inicial:** solicitado (requiere aprobación)
+
+    **Pertenencia:** admin/rrhh pueden dar de alta la solicitud de cualquier
+    empleado; cualquier otro rol (incluido supervisor) sólo sobre su propia
+    vacación, o 403. El dueño se resuelve desde `vacacion.id_empleado` — el body
+    no trae `id_empleado`, así que no hay nada que el cliente pueda falsear.
     """
+    exigir_gestion_de_empleado(
+        current_user, services.obtener_empleado_de_vacacion(db, id_vacacion)
+    )
+
     return services.crear_detalle_vacacion(db, id_vacacion, data)
 
 
@@ -275,10 +353,18 @@ def crear_detalle_vacacion(
 )
 def obtener_detalle_vacacion(
     id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
 ):
-    """Obtiene un detalle de vacación específico por su ID."""
-    return services.obtener_detalle_vacacion(db, id)
+    """
+    Obtiene un detalle de vacación específico por su ID.
+
+    Un empleado sólo puede ver los suyos; admin/rrhh/supervisor, los de cualquiera.
+    """
+    detalle = services.obtener_detalle_vacacion(db, id)
+    exigir_lectura_de_empleado(current_user, services.obtener_empleado_de_detalle(db, id))
+
+    return detalle
 
 
 @router.get(
@@ -291,14 +377,21 @@ def listar_detalles_vacacion(
     estado: Optional[EstadoDetalleVacacionEnum] = Query(None, description="Filtrar por estado"),
     skip: int = Query(0, ge=0, description="Registros a omitir"),
     limit: int = Query(100, ge=1, le=500, description="Límite de registros"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
 ):
     """
     Lista todos los detalles de vacación asociados a un registro de vacación.
 
     **Filtros disponibles:**
     - `estado`: solicitado, aprobado, tomado, rechazado, cancelado
+
+    Un empleado sólo puede listar los detalles de su propia vacación.
     """
+    exigir_lectura_de_empleado(
+        current_user, services.obtener_empleado_de_vacacion(db, id_vacacion)
+    )
+
     return services.listar_detalles_por_vacacion(
         db,
         id_vacacion=id_vacacion,
@@ -321,7 +414,8 @@ def listar_todos_detalles(
     fecha_hasta: Optional[date] = Query(None, description="Filtrar hasta fecha"),
     skip: int = Query(0, ge=0, description="Registros a omitir"),
     limit: int = Query(100, ge=1, le=500, description="Límite de registros"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
 ):
     """
     Lista todos los detalles de vacación con filtros opcionales.
@@ -331,7 +425,14 @@ def listar_todos_detalles(
     - `estado`: solicitado, aprobado, tomado, rechazado, cancelado
     - `tipo_vacacion`: goce_de_haber, sin_goce_de_haber, licencia_accidente
     - `fecha_desde` y `fecha_hasta`: rango de fechas de inicio
+
+    A un rol sin lectura total se le fuerza `id_empleado` al suyo, igual que en
+    `GET /vacaciones/`.
     """
+    alcance = alcance_lectura(current_user)
+    if alcance is not None:
+        id_empleado = alcance
+
     return services.listar_todos_detalles(
         db,
         id_empleado=id_empleado,
@@ -347,7 +448,8 @@ def listar_todos_detalles(
 @router.get(
     "/detalles/pendientes",
     response_model=List[DetalleVacacionResponse],
-    summary="Listar solicitudes pendientes de aprobación"
+    summary="Listar solicitudes pendientes de aprobación",
+    dependencies=[Depends(require_roles("admin", "rrhh", "supervisor"))],
 )
 def listar_detalles_pendientes(
     skip: int = Query(0, ge=0),
@@ -358,6 +460,10 @@ def listar_detalles_pendientes(
     Lista todas las solicitudes de vacación pendientes de aprobación.
 
     **Útil para supervisores y RRHH** para revisar solicitudes.
+
+    Es la cola de aprobación de toda la empresa, sin filtro por empleado, así que
+    queda restringida por rol: un empleado ve sus propias solicitudes pendientes
+    por `GET /vacaciones/detalles/?estado=solicitado`.
     """
     return services.listar_detalles_pendientes(db, skip, limit)
 
@@ -370,14 +476,21 @@ def listar_detalles_pendientes(
 def actualizar_detalle_vacacion(
     id: int,
     data: DetalleVacacionUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
 ):
     """
     Actualiza un detalle de vacación existente.
 
     **Restricción:** Solo se puede actualizar si está en estado 'solicitado'.
     Solicitudes aprobadas o tomadas no se pueden modificar.
+
+    **Pertenencia:** admin/rrhh sobre cualquier solicitud; el resto sólo sobre la
+    propia. El límite temporal (sólo mientras siga en 'solicitado') ya lo aplica
+    el servicio, para todos por igual.
     """
+    exigir_gestion_de_empleado(current_user, services.obtener_empleado_de_detalle(db, id))
+
     return services.actualizar_detalle_vacacion(db, id, data)
 
 
@@ -385,7 +498,6 @@ def actualizar_detalle_vacacion(
     "/detalles/{id:int}/cambiar-estado",
     response_model=DetalleVacacionResponse,
     summary="Cambiar estado de solicitud de vacación",
-    dependencies=[Depends(require_roles("admin", "supervisor", "rrhh"))],
 )
 def cambiar_estado_detalle(
     id: int,
@@ -413,7 +525,24 @@ def cambiar_estado_detalle(
     NO descuenta saldo vacacional al pasar a 'tomado'. Para que lo descuente hay
     que enviar `cubrir_con_saldo_vacacional=true`, confirmando que RRHH y el
     empleado acordaron cubrir la licencia con el saldo de vacaciones.
+
+    **Quién puede llamarlo:** admin/rrhh/supervisor sobre cualquier solicitud. El
+    dueño de la solicitud puede además cancelar la suya — y sólo cancelar: si pide
+    cualquier otro estado recibe 403. El guard va acá y no en el decorador porque
+    depende del `nuevo_estado`, que sólo se conoce leyendo el body.
     """
+    if not es_aprobador(current_user):
+        exigir_gestion_de_empleado(current_user, services.obtener_empleado_de_detalle(db, id))
+
+        if data.nuevo_estado != EstadoDetalleVacacionEnum.cancelado:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "Solo puedes cancelar tu propia solicitud; aprobarla, rechazarla o "
+                    "marcarla como tomada corresponde a RRHH o a tu supervisor."
+                ),
+            )
+
     return services.cambiar_estado_detalle(db, id, data, id_aprobado_por=current_user.id_empleado)
 
 

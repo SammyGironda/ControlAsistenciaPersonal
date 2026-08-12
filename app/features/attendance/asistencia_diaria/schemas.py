@@ -5,7 +5,7 @@ Validación de datos de entrada/salida para endpoints REST.
 
 from datetime import date, datetime
 from typing import Optional
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from decimal import Decimal
 
 
@@ -33,9 +33,9 @@ class AsistenciaDiariaCreate(BaseModel):
     trabajo_en_feriado: bool = Field(False, description="¿Trabajó en día feriado?")
     observacion: Optional[str] = Field(None, max_length=500, description="Observaciones adicionales")
 
-    class Config:
-        from_attributes = True
-        json_schema_extra = {
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
             "example": {
                 "id_empleado": 5,
                 "fecha": "2026-01-15",
@@ -48,6 +48,7 @@ class AsistenciaDiariaCreate(BaseModel):
                 "observacion": "Empleado llegó tarde por tráfico"
             }
         }
+    )
 
 
 class AsistenciaDiariaUpdate(BaseModel):
@@ -66,8 +67,7 @@ class AsistenciaDiariaUpdate(BaseModel):
     trabajo_en_feriado: Optional[bool] = None
     observacion: Optional[str] = Field(None, max_length=500)
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # --- Schemas de respuesta ---
@@ -90,9 +90,9 @@ class AsistenciaDiariaResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-        json_schema_extra = {
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
             "example": {
                 "id": 123,
                 "id_empleado": 5,
@@ -111,6 +111,7 @@ class AsistenciaDiariaResponse(BaseModel):
                 "updated_at": "2026-01-15T23:59:30"
             }
         }
+    )
 
 
 class EmpleadoSimple(BaseModel):
@@ -121,8 +122,7 @@ class EmpleadoSimple(BaseModel):
     ci_numero: str
     ci_depto_emision: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class MarcacionSimple(BaseModel):
@@ -131,8 +131,7 @@ class MarcacionSimple(BaseModel):
     fecha_hora_marcacion: datetime
     tipo_marcacion: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AsistenciaDiariaConDetalles(AsistenciaDiariaResponse):
@@ -148,8 +147,7 @@ class AsistenciaDiariaConDetalles(AsistenciaDiariaResponse):
         None, description="Detalles de la marcación de salida"
     )
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # --- Schemas de resumen ---
@@ -178,9 +176,9 @@ class ResumenAsistenciaMensual(BaseModel):
     total_horas_extra: Decimal
     dias_trabajados_en_feriado: int
 
-    class Config:
-        from_attributes = True
-        json_schema_extra = {
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
             "example": {
                 "id_empleado": 5,
                 "nombre_completo": "Juan Pérez García",
@@ -202,6 +200,7 @@ class ResumenAsistenciaMensual(BaseModel):
                 "dias_trabajados_en_feriado": 0
             }
         }
+    )
 
 
 # --- Schemas de respuesta de procesamiento ---
@@ -214,8 +213,8 @@ class ResultadoProcesamiento(BaseModel):
     empleados_skipped: int
     errores: list[str] = Field(default_factory=list)
     
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "fecha": "2026-01-15",
                 "empleados_procesados": 150,
@@ -227,6 +226,7 @@ class ResultadoProcesamiento(BaseModel):
                 ]
             }
         }
+    )
 
 
 class ResultadoCierrePeriodo(BaseModel):
@@ -253,5 +253,4 @@ class PeriodoAsistenciaResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

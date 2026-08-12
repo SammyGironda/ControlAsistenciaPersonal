@@ -5,7 +5,7 @@ Validación de datos de entrada y salida para el módulo de feriados.
 
 from datetime import date
 from typing import Optional
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from enum import Enum
 
 
@@ -53,5 +53,4 @@ class DiaFestivoResponse(DiaFestivoBase):
     """Schema de respuesta para un feriado."""
     id: int
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

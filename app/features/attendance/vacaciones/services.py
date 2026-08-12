@@ -88,6 +88,49 @@ def obtener_vacacion(db: Session, id: int) -> Vacacion:
     return vacacion
 
 
+def obtener_empleado_de_vacacion(db: Session, id_vacacion: int) -> int:
+    """
+    Devuelve el id_empleado dueño de un registro de vacación.
+
+    Existe para el guard de pertenencia del router (exigir_lectura_de_empleado /
+    exigir_gestion_de_empleado): sólo hace falta la FK, no el objeto entero.
+    Levanta el mismo 404 que obtener_vacacion para que un ID inexistente siga
+    respondiendo 404 y no 403.
+    """
+    id_empleado = db.query(Vacacion.id_empleado).filter(Vacacion.id == id_vacacion).scalar()
+
+    if id_empleado is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Vacación con ID {id_vacacion} no encontrada"
+        )
+
+    return id_empleado
+
+
+def obtener_empleado_de_detalle(db: Session, id_detalle: int) -> int:
+    """
+    Devuelve el id_empleado dueño de una solicitud, cruzando detalle -> vacación.
+
+    DetalleVacacion no guarda id_empleado: cuelga de Vacacion. Mismo criterio de
+    404 que obtener_detalle_vacacion.
+    """
+    id_empleado = (
+        db.query(Vacacion.id_empleado)
+        .join(DetalleVacacion, DetalleVacacion.id_vacacion == Vacacion.id)
+        .filter(DetalleVacacion.id == id_detalle)
+        .scalar()
+    )
+
+    if id_empleado is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Detalle de vacación con ID {id_detalle} no encontrado"
+        )
+
+    return id_empleado
+
+
 def obtener_vacacion_por_empleado_gestion(
     db: Session,
     id_empleado: int,
