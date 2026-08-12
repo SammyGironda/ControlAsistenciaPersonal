@@ -3,10 +3,12 @@ Servicios de negocio para Vacacion y DetalleVacacion.
 CRUD completo con cálculo de saldo y gestión del ciclo de vida de solicitudes.
 """
 
-from datetime import date
-from typing import List, Optional
+from datetime import date, datetime, timedelta
+from typing import Dict, List, Optional, Tuple
 from decimal import Decimal
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, or_, text
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session, joinedload
 from fastapi import HTTPException, status
 
 from app.features.attendance.vacaciones.models import (
@@ -20,8 +22,20 @@ from app.features.attendance.vacaciones.schemas import (
     VacacionUpdate,
     DetalleVacacionCreate,
     DetalleVacacionUpdate,
-    CambiarEstadoRequest
+    CambiarEstadoRequest,
+    CalculoHorasHabilesResponse,
+    DiaExcluido,
+    MotivoExclusionEnum,
 )
+from app.features.employees.empleado.models import Empleado
+from app.features.employees.horario.models import Horario, AsignacionHorario
+from app.features.attendance.feriados.models import DiaFestivo, AmbitoFestivoEnum
+
+# Se reutiliza el parser de días laborables de asistencia_diaria en vez de
+# duplicarlo: ya maneja el JSON [1..7], los strings "L-V" / "L,MI,V" y el
+# default lunes-viernes. asistencia_diaria NO importa vacaciones, así que este
+# import no cierra ningún ciclo.
+from app.features.attendance.asistencia_diaria.services import _parse_dias_laborables
 
 
 # ===== SERVICIOS PARA VACACION =====
@@ -602,3 +616,354 @@ def cambiar_estado_detalle(
     db.refresh(vacacion)
 
     return detalle
+
+
+# ===== CÁLCULO DE HORAS HÁBILES DE UN RANGO =====
+
+# Tope de seguridad: una solicitud de vacaciones nunca cubre más de una gestión.
+MAX_DIAS_RANGO = 366
+
+# Solo se usa cuando el horario no permite derivar la jornada (discontinuo sin
+# hora_entrada/hora_salida y sin jornada_semanal_horas). Es el mismo valor que
+# usa la vista rrhh.v_resumen_vacaciones como divisor horas -> días.
+HORAS_JORNADA_FALLBACK = Decimal("8.0")
+
+NOMBRE_DIA_SEMANA = [
+    "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"
+]
+
+
+def _horas_por_jornada(horario: Horario) -> Decimal:
+    """
+    Deriva las horas de una jornada completa. No hay columna de horas diarias en
+    `horario`, así que se calcula en cascada:
+
+    1. hora_salida - hora_entrada, si ambas están presentes
+    2. jornada_semanal_horas / cantidad de días laborables
+    3. HORAS_JORNADA_FALLBACK
+
+    Un turno que cruza medianoche (salida <= entrada) daría un valor negativo o
+    cero, así que cae al paso 2 en vez de restar horas del total.
+    """
+    if horario.hora_entrada is not None and horario.hora_salida is not None:
+        inicio = datetime.combine(date.min, horario.hora_entrada)
+        fin = datetime.combine(date.min, horario.hora_salida)
+        segundos = (fin - inicio).total_seconds()
+
+        if segundos > 0:
+            return Decimal(str(round(segundos / 3600.0, 1)))
+
+    dias_laborables = _parse_dias_laborables(horario.dias_laborables)
+
+    if horario.jornada_semanal_horas is not None and dias_laborables:
+        semanales = float(horario.jornada_semanal_horas)
+        return Decimal(str(round(semanales / len(dias_laborables), 1)))
+
+    return HORAS_JORNADA_FALLBACK
+
+
+def _feriados_en_rango(
+    db: Session,
+    fecha_inicio: date,
+    fecha_fin: date,
+    codigo_departamento: Optional[str]
+) -> Dict[date, str]:
+    """
+    Trae los feriados del rango en UNA sola query, en vez de una por día.
+
+    Match por fecha EXACTA (con año), igual que `_es_feriado` de
+    asistencia_diaria — NO por día+mes como `obtener_feriados_aplicables`. El
+    cálculo tiene que coincidir con lo que `calcular_asistencia_dia` va a
+    registrar de verdad, no con el calendario recurrente de la UI.
+
+    El feriado departamental se resuelve por `empleado.complemento_dep`, que es
+    el departamento de emisión del CI, no la unidad organizacional.
+    """
+    filas = db.query(DiaFestivo).filter(
+        DiaFestivo.fecha >= fecha_inicio,
+        DiaFestivo.fecha <= fecha_fin,
+        DiaFestivo.activo.is_(True),
+        or_(
+            DiaFestivo.ambito == AmbitoFestivoEnum.NACIONAL,
+            and_(
+                DiaFestivo.ambito == AmbitoFestivoEnum.DEPARTAMENTAL,
+                DiaFestivo.codigo_departamento == codigo_departamento,
+            ),
+        ),
+    ).all()
+
+    return {fila.fecha: fila.descripcion for fila in filas}
+
+
+def _asignaciones_en_rango(
+    db: Session,
+    id_empleado: int,
+    fecha_inicio: date,
+    fecha_fin: date
+) -> List[AsignacionHorario]:
+    """
+    Trae en UNA query todas las asignaciones de horario que solapan el rango.
+
+    Filtra `es_activo == True` y ordena por `fecha_inicio DESC`: es la regla de
+    "horario vigente determinístico" del resto de attendance/, necesaria porque
+    `delete_asignacion_horario` es un soft-delete que apaga `es_activo` sin
+    tocar `fecha_fin`.
+    """
+    return db.query(AsignacionHorario).options(
+        joinedload(AsignacionHorario.horario)
+    ).filter(
+        AsignacionHorario.id_empleado == id_empleado,
+        AsignacionHorario.es_activo.is_(True),
+        AsignacionHorario.fecha_inicio <= fecha_fin,
+        or_(
+            AsignacionHorario.fecha_fin.is_(None),
+            AsignacionHorario.fecha_fin >= fecha_inicio,
+        ),
+    ).order_by(AsignacionHorario.fecha_inicio.desc()).all()
+
+
+def _asignacion_vigente(
+    asignaciones: List[AsignacionHorario],
+    fecha: date
+) -> Optional[AsignacionHorario]:
+    """
+    Devuelve la asignación vigente en una fecha concreta. Asume la lista ya
+    ordenada por `fecha_inicio DESC`, así que la primera que contiene la fecha
+    es la más reciente: la asignación puede cambiar dentro del rango y hay que
+    resolverla por fecha, no una sola vez para todo el rango.
+    """
+    for asignacion in asignaciones:
+        empezo = asignacion.fecha_inicio <= fecha
+        sigue = asignacion.fecha_fin is None or asignacion.fecha_fin >= fecha
+
+        if empezo and sigue:
+            return asignacion
+
+    return None
+
+
+def calcular_horas_habiles_rango(
+    db: Session,
+    id_empleado: int,
+    fecha_inicio: date,
+    fecha_fin: date
+) -> CalculoHorasHabilesResponse:
+    """
+    Calcula las horas hábiles que consume un rango de fechas para un empleado.
+
+    Existe para que el frontend pueda mostrar el costo real de una solicitud
+    ANTES de crearla: `detalle_vacacion.horas_habiles` es un dato que envía el
+    cliente y hasta ahora no había forma de derivarlo.
+
+    Un día aporta horas solo si tiene horario vigente, cae en un día laborable
+    de ese horario y no es feriado. La precedencia es la misma que en
+    `calcular_asistencia_dia`: **descanso gana sobre feriado**, así que un
+    feriado que cae en sábado no se cuenta ni se reporta dos veces.
+    """
+    if fecha_fin < fecha_inicio:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="fecha_fin debe ser mayor o igual a fecha_inicio"
+        )
+
+    dias_calendario = (fecha_fin - fecha_inicio).days + 1
+
+    if dias_calendario > MAX_DIAS_RANGO:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"El rango abarca {dias_calendario} días y el máximo es "
+                f"{MAX_DIAS_RANGO}. Una solicitud de vacaciones no cubre más de una gestión."
+            )
+        )
+
+    empleado = db.query(Empleado).filter(Empleado.id == id_empleado).first()
+
+    if not empleado:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Empleado con ID {id_empleado} no encontrado"
+        )
+
+    feriados = _feriados_en_rango(db, fecha_inicio, fecha_fin, empleado.complemento_dep)
+    asignaciones = _asignaciones_en_rango(db, id_empleado, fecha_inicio, fecha_fin)
+
+    # Cache por id de horario: _parse_dias_laborables y _horas_por_jornada se
+    # resolverían una vez por día del rango sin esto.
+    cache_horario: Dict[int, Tuple[List[int], Decimal]] = {}
+
+    dias_excluidos: List[DiaExcluido] = []
+    dias_habiles = 0
+    horas_habiles = Decimal("0.0")
+    horas_por_jornada: Optional[Decimal] = None
+    jornadas_vistas = set()
+
+    for offset in range(dias_calendario):
+        fecha = fecha_inicio + timedelta(days=offset)
+        asignacion = _asignacion_vigente(asignaciones, fecha)
+
+        if asignacion is None or asignacion.horario is None:
+            dias_excluidos.append(DiaExcluido(
+                fecha=fecha,
+                motivo=MotivoExclusionEnum.sin_horario,
+                etiqueta="Sin horario asignado",
+            ))
+            continue
+
+        horario = asignacion.horario
+
+        if horario.id not in cache_horario:
+            cache_horario[horario.id] = (
+                _parse_dias_laborables(horario.dias_laborables),
+                _horas_por_jornada(horario),
+            )
+
+        dias_laborables, horas_jornada = cache_horario[horario.id]
+
+        if horas_por_jornada is None:
+            horas_por_jornada = horas_jornada
+        jornadas_vistas.add(horas_jornada)
+
+        # PASO 1: descanso. Va antes que el feriado a propósito.
+        if fecha.weekday() not in dias_laborables:
+            dias_excluidos.append(DiaExcluido(
+                fecha=fecha,
+                motivo=MotivoExclusionEnum.descanso,
+                etiqueta=NOMBRE_DIA_SEMANA[fecha.weekday()],
+            ))
+            continue
+
+        # PASO 2: feriado
+        descripcion_feriado = feriados.get(fecha)
+
+        if descripcion_feriado:
+            dias_excluidos.append(DiaExcluido(
+                fecha=fecha,
+                motivo=MotivoExclusionEnum.feriado,
+                etiqueta=descripcion_feriado,
+            ))
+            continue
+
+        dias_habiles += 1
+        horas_habiles += horas_jornada
+
+    # Si NINGUNA fecha del rango tuvo horario vigente, el problema no es el
+    # rango: es que al empleado le falta la asignación. Se corta con un mensaje
+    # accionable en vez de devolver 0 horas, que se leería como "no hay días
+    # hábiles" y mandaría a RRHH a revisar el calendario equivocado.
+    if horas_por_jornada is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"El empleado {id_empleado} no tiene horario asignado en el rango "
+                f"{fecha_inicio} a {fecha_fin}; RRHH debe asignarlo antes de registrar "
+                f"la solicitud."
+            )
+        )
+
+    return CalculoHorasHabilesResponse(
+        id_empleado=id_empleado,
+        fecha_inicio=fecha_inicio,
+        fecha_fin=fecha_fin,
+        dias_calendario=dias_calendario,
+        dias_habiles=dias_habiles,
+        horas_por_jornada=horas_por_jornada,
+        horario_uniforme=len(jornadas_vistas) <= 1,
+        horas_habiles=horas_habiles,
+        dias_excluidos=dias_excluidos,
+    )
+
+
+# ===== SALDO DE LA GESTIÓN =====
+
+def asegurar_vacacion_gestion(
+    db: Session,
+    id_empleado: int,
+    gestion: int
+) -> Tuple[Vacacion, bool]:
+    """
+    Devuelve el registro de vacación de un empleado para una gestión, creándolo
+    con la base LGT si todavía no existe. Es idempotente: llamarla dos veces no
+    duplica ni incrementa saldos.
+
+    Existe porque `rrhh.vacacion` está prácticamente vacía y crear un
+    `detalle_vacacion` exige un `id_vacacion`: sin esto, el formulario de
+    solicitudes se trabaría para casi todos los empleados.
+
+    Devuelve `(vacacion, fue_creada)`.
+
+    `horas_goce_haber` se siembra con la base completa, NO con 0: al pasar un
+    detalle a 'tomado', `_resolver_campo_saldo` descuenta de esa bolsa y
+    `cambiar_estado_detalle` exige `horas_habiles <= horas_goce_haber`. Con la
+    bolsa en 0 ninguna vacación con goce podría marcarse como tomada nunca.
+    (`transferir_a_vacacion` la crea con solo las 4h del cumpleaños porque su
+    caso de uso es acreditar ese beneficio, no habilitar el saldo anual.)
+    """
+    existente = db.query(Vacacion).filter(
+        Vacacion.id_empleado == id_empleado,
+        Vacacion.gestion == gestion,
+    ).first()
+
+    if existente:
+        return existente, False
+
+    empleado = db.query(Empleado).filter(Empleado.id == id_empleado).first()
+
+    if not empleado:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Empleado con ID {id_empleado} no encontrado"
+        )
+
+    # Misma fuente que usa el trigger trg_compensacion_horas_extra_a_vacacion y
+    # que beneficio_cumpleanos._base_horas_vacacion_lgt, para que un saldo
+    # creado por cualquiera de las tres rutas parta de la misma base.
+    base = db.execute(
+        text("SELECT rrhh.fn_horas_vacacion_lgt(:ingreso, :corte)"),
+        {"ingreso": empleado.fecha_ingreso, "corte": date(gestion, 12, 31)},
+    ).scalar()
+
+    base_horas = Decimal(str(base)) if base is not None else Decimal("0.0")
+
+    vacacion = Vacacion(
+        id_empleado=id_empleado,
+        gestion=gestion,
+        horas_correspondientes=base_horas,
+        horas_goce_haber=base_horas,
+        horas_sin_goce_haber=Decimal("0.0"),
+        horas_tomadas=Decimal("0.0"),
+        observacion=(
+            f"Creada automáticamente al registrar una solicitud de vacaciones. "
+            f"Base por antigüedad (LGT Art. 44) al cierre de la gestión {gestion}."
+        ),
+    )
+
+    db.add(vacacion)
+
+    try:
+        db.commit()
+    except IntegrityError:
+        # Carrera contra uq_vacacion_empleado_gestion: otra request creó el
+        # mismo saldo entre el SELECT y el INSERT. Se devuelve el que ganó en
+        # vez de fallar, que es lo que espera un endpoint idempotente.
+        db.rollback()
+
+        ganador = db.query(Vacacion).filter(
+            Vacacion.id_empleado == id_empleado,
+            Vacacion.gestion == gestion,
+        ).first()
+
+        if ganador:
+            return ganador, False
+
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"No se pudo crear el saldo vacacional del empleado {id_empleado} "
+                f"para la gestión {gestion}"
+            )
+        )
+
+    db.refresh(vacacion)
+
+    return vacacion, True

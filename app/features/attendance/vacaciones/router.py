@@ -5,7 +5,7 @@ Router para Vacacion y DetalleVacacion - Endpoints REST para gestión de vacacio
 from datetime import date
 from typing import List, Optional
 from decimal import Decimal
-from fastapi import APIRouter, Depends, Query, Body, status
+from fastapi import APIRouter, Depends, Query, Body, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -20,11 +20,79 @@ from app.features.attendance.vacaciones.schemas import (
     DetalleVacacionUpdate,
     DetalleVacacionResponse,
     CambiarEstadoRequest,
+    CalculoHorasHabilesResponse,
+    AsegurarGestionRequest,
     TipoVacacionEnum,
     EstadoDetalleVacacionEnum
 )
 
 router = APIRouter(prefix="/vacaciones", tags=["Vacaciones"])
+
+
+# ===== ENDPOINTS DE APOYO AL FORMULARIO DE SOLICITUD =====
+#
+# Van primero porque sus paths son literales: aunque `/{id:int}` no llegaría a
+# capturarlos gracias al converter `:int`, dejarlos arriba evita que un cambio
+# futuro del converter los rompa en silencio.
+
+@router.get(
+    "/calcular-horas-habiles",
+    response_model=CalculoHorasHabilesResponse,
+    summary="Calcular las horas hábiles que consume un rango de fechas"
+)
+def calcular_horas_habiles(
+    id_empleado: int = Query(..., gt=0, description="Empleado sobre cuyo horario se calcula"),
+    fecha_inicio: date = Query(..., description="Primer día del rango, inclusive"),
+    fecha_fin: date = Query(..., description="Último día del rango, inclusive"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """
+    Devuelve cuántas horas hábiles consumiría una solicitud de vacaciones sobre
+    ese rango, con el desglose de los días que NO cuentan y por qué.
+
+    Sirve para que el frontend muestre el costo real antes de crear la solicitud:
+    `detalle_vacacion.horas_habiles` es un dato que envía el cliente.
+
+    Un día aporta horas solo si tiene horario vigente, cae en un día laborable de
+    ese horario y no es feriado. Igual que en el cálculo de asistencia diaria,
+    **descanso tiene precedencia sobre feriado**.
+
+    Sin guard de rol a propósito: un empleado debe poder previsualizar lo suyo.
+    """
+    return services.calcular_horas_habiles_rango(db, id_empleado, fecha_inicio, fecha_fin)
+
+
+@router.post(
+    "/asegurar-gestion",
+    response_model=VacacionResponse,
+    summary="Obtener el saldo vacacional de una gestión, creándolo si falta"
+)
+def asegurar_gestion(
+    data: AsegurarGestionRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """
+    Devuelve el registro de vacación del empleado para esa gestión. Si no existe
+    lo crea con la base que corresponde por antigüedad
+    (`rrhh.fn_horas_vacacion_lgt`, LGT Art. 44).
+
+    **Idempotente**: si el saldo ya existe lo devuelve intacto, sin sumar nada.
+    Responde 201 cuando lo creó y 200 cuando ya estaba.
+
+    Existe porque crear un `detalle_vacacion` exige un `id_vacacion` y casi ningún
+    empleado tiene todavía su registro de vacación.
+    """
+    vacacion, fue_creada = services.asegurar_vacacion_gestion(
+        db, data.id_empleado, data.gestion
+    )
+
+    if fue_creada:
+        response.status_code = status.HTTP_201_CREATED
+
+    return vacacion
 
 
 # ===== ENDPOINTS PARA VACACION =====

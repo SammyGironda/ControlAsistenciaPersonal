@@ -134,3 +134,57 @@ class DetalleVacacionResponse(DetalleVacacionBase):
 
     class Config:
         from_attributes = True
+
+
+# ===== SCHEMAS PARA EL CÁLCULO DE HORAS HÁBILES =====
+
+class MotivoExclusionEnum(str, Enum):
+    """Razón por la que un día del rango no aporta horas hábiles."""
+    descanso = "descanso"
+    feriado = "feriado"
+    sin_horario = "sin_horario"
+
+
+class DiaExcluido(BaseModel):
+    """Un día del rango que no cuenta como hábil, con el motivo."""
+    fecha: date
+    motivo: MotivoExclusionEnum
+    etiqueta: str = Field(
+        ...,
+        description="Texto para mostrar: el nombre del día, la descripción del feriado, etc."
+    )
+
+
+class CalculoHorasHabilesResponse(BaseModel):
+    """
+    Resultado de calcular las horas hábiles que consume un rango de fechas.
+
+    Permite al frontend mostrar el costo real de una solicitud ANTES de crearla,
+    en vez de que el usuario tenga que estimar `horas_habiles` a mano.
+    """
+    id_empleado: int
+    fecha_inicio: date
+    fecha_fin: date
+    dias_calendario: int = Field(..., description="Días totales del rango, inclusive")
+    dias_habiles: int = Field(..., description="Días que efectivamente aportan horas")
+    horas_por_jornada: Decimal = Field(
+        ...,
+        description="Horas de una jornada completa según el horario vigente al inicio del rango"
+    )
+    horario_uniforme: bool = Field(
+        ...,
+        description=(
+            "True si todas las jornadas del rango tienen las mismas horas, o sea si "
+            "`horas_habiles == dias_habiles * horas_por_jornada`. Si es False el "
+            "horario cambió dentro del rango y `horas_por_jornada` (la del primer día "
+            "con horario) no explica el total: mostrar solo `horas_habiles`."
+        )
+    )
+    horas_habiles: Decimal = Field(..., description="Total a enviar como detalle_vacacion.horas_habiles")
+    dias_excluidos: list[DiaExcluido] = Field(default_factory=list)
+
+
+class AsegurarGestionRequest(BaseModel):
+    """Schema para crear (si falta) el saldo vacacional de una gestión."""
+    id_empleado: int = Field(..., gt=0)
+    gestion: int = Field(..., ge=2020, le=2100)
