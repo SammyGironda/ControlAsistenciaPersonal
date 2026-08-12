@@ -3,6 +3,7 @@ Lógica de negocio para Asistencia Diaria.
 Incluye cálculo automático de retrasos, minutos trabajados y tipo de día.
 """
 
+import logging
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Optional, List
@@ -26,6 +27,8 @@ from app.features.attendance.feriados.models import DiaFestivo, AmbitoFestivoEnu
 from app.features.attendance.justificacion.models import JustificacionAusencia, EstadoAprobacionEnum, TipoJustificacionEnum
 from app.features.employees.horario_personalizado.services import get_activo_by_empleado_id as _get_horario_personalizado_activo
 from app.features.attendance.compensacion_horas_extra import services as compensacion_services
+
+logger = logging.getLogger(__name__)
 
 
 # Horas de compensación que acredita un día no laborable efectivamente trabajado.
@@ -391,13 +394,26 @@ def calcular_asistencia_dia(
         # idempotente: el UNIQUE (id_empleado, fecha) de compensacion_horas_extra
         # hace que reprocesar el mismo Excel no acredite las horas dos veces.
         if trabajo_en_feriado and not cargo.es_cargo_confianza:
-            compensacion_services.registrar_compensacion(
+            compensacion = compensacion_services.registrar_compensacion(
                 db,
                 id_empleado=id_empleado,
                 fecha=fecha,
                 horas=HORAS_COMPENSACION_DIA_NO_LABORABLE,
                 motivo=f"Trabajo en feriado {fecha.isoformat()}",
             )
+
+            # None = ya existía la compensación de esa fecha, que es el caso
+            # normal al reprocesar el mismo Excel. Se deja rastro igual: si el
+            # motivo real fuera otro, sin este log la acreditación se pierde en
+            # silencio y nadie se entera hasta auditar el saldo. Es lo que pasó
+            # con el NotNullViolation del trigger (migración e5f2a8c1d904).
+            if compensacion is None:
+                logger.info(
+                    "No se acreditó compensación por feriado trabajado "
+                    "(empleado=%s, fecha=%s): ya existía un registro para esa fecha.",
+                    id_empleado,
+                    fecha,
+                )
 
         return asistencia_feriado
 

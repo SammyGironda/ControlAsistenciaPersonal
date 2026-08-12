@@ -3,6 +3,7 @@ Servicios de negocio para JustificacionAusencia.
 CRUD completo con cálculo automático de horas y flujo de aprobación.
 """
 
+import logging
 from datetime import date, datetime, timedelta
 from typing import List, Optional
 from decimal import Decimal
@@ -23,6 +24,8 @@ from app.features.attendance.justificacion.schemas import (
 from app.features.employees.empleado.models import Empleado
 from app.features.attendance.asistencia_diaria import services as asistencia_diaria_services
 from app.features.attendance.compensacion_horas_extra import services as compensacion_services
+
+logger = logging.getLogger(__name__)
 
 
 def calcular_horas_permiso(hora_inicio, hora_fin) -> Decimal:
@@ -172,7 +175,7 @@ def _aplicar_viaje_trabajo_aprobado(db: Session, justificacion: JustificacionAus
         )
 
         if es_no_laborable and not es_cargo_confianza:
-            compensacion_services.registrar_compensacion(
+            compensacion = compensacion_services.registrar_compensacion(
                 db,
                 id_empleado=justificacion.id_empleado,
                 fecha=fecha_actual,
@@ -180,6 +183,19 @@ def _aplicar_viaje_trabajo_aprobado(db: Session, justificacion: JustificacionAus
                 motivo=f"Viaje de trabajo (justificación #{justificacion.id}) en día de descanso/feriado",
                 id_registrado_por=justificacion.id_aprobado_por,
             )
+
+            # None = esa fecha ya tenía compensación. Se deja rastro para que
+            # una acreditación que no ocurre no se pierda en silencio: es lo que
+            # pasó con el NotNullViolation del trigger (migración e5f2a8c1d904).
+            if compensacion is None:
+                logger.info(
+                    "No se acreditó compensación por viaje de trabajo "
+                    "(justificación=%s, empleado=%s, fecha=%s): ya existía un "
+                    "registro para esa fecha.",
+                    justificacion.id,
+                    justificacion.id_empleado,
+                    fecha_actual,
+                )
 
         fecha_actual += timedelta(days=1)
 

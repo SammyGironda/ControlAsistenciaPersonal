@@ -2,11 +2,17 @@
 Router para CompensacionHorasExtra - Registro admin-only de compensación de
 horas por trabajo en fin de semana o feriado no planeado.
 
-Ambos endpoints quedan detrás de require_admin(). id_registrado_por se
-deriva del usuario autenticado (get_actor_empleado_id), ya no se acepta del
-cliente. El insert es independiente de asistencia_diaria: funciona tanto si
-esa fecha ya tiene registro de asistencia_diaria como si aún no existe (se
-genera recién al procesar el Excel mensual).
+El REGISTRO (POST) queda detrás de require_admin(); la CONSULTA (GET) admite
+además el rol rrhh, que audita lo cargado sin poder cargar nada. Son dos
+decisiones distintas y por eso son dos guards distintos: acreditar horas al
+saldo vacacional es irreversible desde la API (no hay PUT ni DELETE y el
+trigger sólo actúa en INSERT), mientras que leer el historial es la operación
+de auditoría para la que existe este listado.
+
+id_registrado_por se deriva del usuario autenticado (get_actor_empleado_id),
+ya no se acepta del cliente. El insert es independiente de asistencia_diaria:
+funciona tanto si esa fecha ya tiene registro de asistencia_diaria como si aún
+no existe (se genera recién al procesar el Excel mensual).
 """
 
 from typing import List, Optional
@@ -14,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import get_actor_empleado_id, get_current_user, require_admin
+from app.core.deps import get_actor_empleado_id, get_current_user, require_admin, require_roles
 from app.features.auth.usuario.models import Usuario
 from app.features.attendance.compensacion_horas_extra import services
 from app.features.attendance.compensacion_horas_extra.schemas import (
@@ -83,7 +89,7 @@ def crear_compensacion(
     "/",
     response_model=List[CompensacionHorasExtraResponse],
     summary="Listar compensaciones de horas extra",
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(require_roles("admin", "rrhh"))],
 )
 def listar_compensaciones(
     id_empleado: Optional[int] = Query(None, description="Filtrar por empleado"),
@@ -95,7 +101,8 @@ def listar_compensaciones(
     """
     Lista compensaciones de horas extra con filtros opcionales.
 
-    **Útil para reportes/auditoría de RRHH.**
+    **Útil para reportes/auditoría de RRHH**, que puede consultarlo pero no
+    registrar: el POST sigue siendo exclusivo del rol admin.
 
     **Filtros disponibles:**
     - `id_empleado`: compensaciones de un empleado específico
