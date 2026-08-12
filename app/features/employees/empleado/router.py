@@ -58,6 +58,15 @@ def get_all_empleados(
     estado: Optional[str] = Query(None, pattern="^(activo|baja|por_habilitar|suspendido)$", description="Filtrar por estado"),
     id_departamento: Optional[int] = Query(None, description="Filtrar por departamento"),
     id_cargo: Optional[int] = Query(None, description="Filtrar por cargo"),
+    incluir_baja: bool = Query(
+        False,
+        description=(
+            "Por defecto el listado sin filtro de estado excluye a los empleados dados "
+            "de baja. Con true los incluye, para pantallas que necesitan el padrón "
+            "completo (p. ej. liquidar vacaciones pendientes en un finiquito). "
+            "Se ignora si se envía `estado`, que ya filtra por un valor concreto."
+        )
+    ),
     db: Session = Depends(get_db)
 ):
     """Lista todos los empleados con filtros opcionales."""
@@ -67,7 +76,8 @@ def get_all_empleados(
         limit=limit,
         estado=estado,
         id_departamento=id_departamento,
-        id_cargo=id_cargo
+        id_cargo=id_cargo,
+        incluir_baja=incluir_baja
     )
 
 
