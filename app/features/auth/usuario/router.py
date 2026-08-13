@@ -1,6 +1,16 @@
 """
 Router para Usuario - Endpoints REST.
-Todos los endpoints están abiertos hasta Semana 9 (NO JWT aún).
+
+RBAC aplicado el 2026-08-13 (antes sólo el DELETE tenía guard):
+- Crear/editar/eliminar cuentas: sólo admin.
+- Lectura del padrón de usuarios: admin y rrhh (gestión de personal).
+- Cambio de contraseña: el propio usuario sobre su cuenta, o admin.
+
+POST /verify-credentials fue eliminado en ese mismo cambio: estaba abierto,
+recibía la contraseña como query param (o sea que quedaba en los logs de acceso)
+y ningún cliente lo usaba desde el 2026-08-10. POST /api/v1/auth/login lo
+reemplaza por completo. services.verify_credentials() sigue existiendo: es lo que
+usa ese login.
 """
 
 from typing import List, Optional
@@ -8,8 +18,14 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import require_admin
+from app.core.deps import (
+    exigir_gestion_de_usuario,
+    get_current_user,
+    require_admin,
+    require_roles,
+)
 from app.features.auth.usuario import schemas, services
+from app.features.auth.usuario.models import Usuario
 
 router = APIRouter(
     prefix="/usuarios",
@@ -22,15 +38,16 @@ router = APIRouter(
     "/",
     response_model=schemas.UsuarioRead,
     status_code=201,
-    summary="Crear nuevo usuario"
+    summary="Crear nuevo usuario",
+    dependencies=[Depends(require_admin)],
 )
 def create_usuario(
     usuario: schemas.UsuarioCreate,
     db: Session = Depends(get_db)
 ):
     """
-    Crea un nuevo usuario en el sistema.
-    
+    Crea un nuevo usuario en el sistema. Sólo admin.
+
     - **username**: Username único (3-50 caracteres)
     - **password**: Contraseña (mínimo 6 caracteres, será hasheada)
     - **id_rol**: ID del rol asignado
@@ -42,7 +59,8 @@ def create_usuario(
 @router.get(
     "/",
     response_model=List[schemas.UsuarioRead],
-    summary="Listar todos los usuarios"
+    summary="Listar todos los usuarios",
+    dependencies=[Depends(require_roles("admin", "rrhh"))],
 )
 def list_usuarios(
     skip: int = Query(0, ge=0),
@@ -52,8 +70,8 @@ def list_usuarios(
     db: Session = Depends(get_db)
 ):
     """
-    Lista todos los usuarios con paginación y filtros.
-    
+    Lista todos los usuarios con paginación y filtros. Sólo admin y rrhh.
+
     Parámetros:
     - **skip**: Offset para paginación
     - **limit**: Límite de resultados
@@ -61,9 +79,9 @@ def list_usuarios(
     - **id_rol**: Filtrar por rol específico
     """
     return services.get_usuarios(
-        db, 
-        skip=skip, 
-        limit=limit, 
+        db,
+        skip=skip,
+        limit=limit,
         solo_activos=solo_activos,
         id_rol=id_rol
     )
@@ -72,15 +90,19 @@ def list_usuarios(
 @router.get(
     "/{usuario_id}",
     response_model=schemas.UsuarioRead,
-    summary="Obtener usuario por ID"
+    summary="Obtener usuario por ID",
+    dependencies=[Depends(require_roles("admin", "rrhh"))],
 )
 def get_usuario(
     usuario_id: int,
     db: Session = Depends(get_db)
 ):
     """
-    Obtiene un usuario específico por su ID.
-    
+    Obtiene un usuario específico por su ID. Sólo admin y rrhh.
+
+    Para consultar la propia cuenta no hace falta este endpoint: GET /api/v1/auth/me
+    devuelve el usuario del token.
+
     Retorna error 404 si no existe.
     """
     return services.get_usuario(db, usuario_id)
@@ -89,15 +111,16 @@ def get_usuario(
 @router.get(
     "/{usuario_id}/with-rol",
     response_model=schemas.UsuarioReadWithRol,
-    summary="Obtener usuario con info del rol"
+    summary="Obtener usuario con info del rol",
+    dependencies=[Depends(require_roles("admin", "rrhh"))],
 )
 def get_usuario_with_rol(
     usuario_id: int,
     db: Session = Depends(get_db)
 ):
     """
-    Obtiene un usuario con información expandida del rol.
-    
+    Obtiene un usuario con información expandida del rol. Sólo admin y rrhh.
+
     Incluye el nombre del rol además del id_rol.
     """
     return services.get_usuario_with_rol_info(db, usuario_id)
@@ -106,7 +129,8 @@ def get_usuario_with_rol(
 @router.put(
     "/{usuario_id}",
     response_model=schemas.UsuarioRead,
-    summary="Actualizar usuario"
+    summary="Actualizar usuario",
+    dependencies=[Depends(require_admin)],
 )
 def update_usuario(
     usuario_id: int,
@@ -114,8 +138,12 @@ def update_usuario(
     db: Session = Depends(get_db)
 ):
     """
-    Actualiza un usuario existente.
-    
+    Actualiza un usuario existente. Sólo admin.
+
+    Es admin y no rrhh porque el body admite `id_rol` y `password`: con este
+    endpoint se promueve una cuenta a cualquier rol y se le reemplaza la
+    contraseña sin conocer la anterior.
+
     Solo se actualizan los campos enviados.
     Si se envía password, se hashea automáticamente.
     """
@@ -140,15 +168,16 @@ def delete_usuario(
 @router.patch(
     "/{usuario_id}/toggle-activo",
     response_model=schemas.UsuarioRead,
-    summary="Activar/desactivar usuario"
+    summary="Activar/desactivar usuario",
+    dependencies=[Depends(require_admin)],
 )
 def toggle_activo_usuario(
     usuario_id: int,
     db: Session = Depends(get_db)
 ):
     """
-    Alterna el estado activo/inactivo de un usuario (soft delete).
-    
+    Alterna el estado activo/inactivo de un usuario (soft delete). Sólo admin.
+
     Alternativa más segura al hard delete.
     """
     return services.toggle_activo(db, usuario_id)
@@ -161,49 +190,21 @@ def toggle_activo_usuario(
 def change_password(
     usuario_id: int,
     password_data: schemas.UsuarioChangePassword,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
 ):
     """
-    Cambia la contraseña de un usuario.
-    
+    Cambia la contraseña de un usuario: la propia, o cualquiera si es admin.
+
     Requiere:
     - **password_actual**: Contraseña actual (para verificación)
     - **password_nueva**: Nueva contraseña
-    
-    Retorna error 400 si la contraseña actual no es correcta.
+
+    Retorna error 400 si la contraseña actual no es correcta, y 403 si se intenta
+    cambiar la contraseña de otra cuenta sin ser admin.
     """
+    # El guard no puede ir en dependencies=[...]: depende de a quién apunta el
+    # path comparado con quién es el actor. Va antes de llamar al servicio.
+    exigir_gestion_de_usuario(current_user, usuario_id)
+
     return services.change_password(db, usuario_id, password_data)
-
-
-@router.post(
-    "/verify-credentials",
-    summary="Verificar credenciales"
-)
-def verify_credentials(
-    username: str = Query(..., description="Username del usuario"),
-    password: str = Query(..., description="Contraseña en texto plano"),
-    db: Session = Depends(get_db)
-):
-    """
-    Verifica las credenciales de un usuario.
-    
-    Útil para testing. En Semana 9 se usará con JWT.
-    
-    Retorna el usuario si las credenciales son correctas,
-    o error 401 si no.
-    """
-    usuario = services.verify_credentials(db, username, password)
-    
-    if not usuario:
-        from fastapi import HTTPException, status
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Credenciales inválidas"
-        )
-    
-    return {
-        "message": "Credenciales correctas",
-        "usuario_id": usuario.id,
-        "username": usuario.username,
-        "rol_id": usuario.id_rol
-    }

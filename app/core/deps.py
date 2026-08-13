@@ -28,9 +28,14 @@ primero (p.ej. vacacion.id_empleado a partir del id_vacacion del path), así que
 la comprobación va en el cuerpo del endpoint, después de resolver el dueño y
 ANTES de mutar nada.
 
+exigir_gestion_de_usuario() es el mismo guard de pertenencia pero sobre la CUENTA
+en vez del legajo: compara contra usuario.id, no contra id_empleado (ver
+2026-08-13, RBAC de /usuarios y /roles). Lo usa POST /usuarios/{id}/change-password.
+
 TODO (sesión siguiente): aplicar estos guards al resto de routers que todavía
 quedan completamente abiertos (fuera de los 13 endpoints ya cubiertos por el
-cambio de 2026-08-10 y los 17 de /vacaciones cubiertos el 2026-08-12).
+cambio de 2026-08-10, los 17 de /vacaciones cubiertos el 2026-08-12 y los 15 de
+/usuarios + /roles cubiertos el 2026-08-13).
 
 Nota sobre imports: la dirección es siempre deps -> features/auth/usuario/services.
 Si algún día usuario/services.py importara este módulo habría un ciclo.
@@ -172,6 +177,17 @@ def _nombre_rol(current_user: Usuario) -> str:
     return current_user.rol.nombre.lower()
 
 
+def es_admin(current_user: Usuario) -> bool:
+    """
+    True si el usuario tiene rol admin.
+
+    Gemelo de es_gestor para usar dentro del cuerpo de un endpoint: require_admin
+    es una dependencia de FastAPI y expresa la misma regla, pero como guard
+    declarativo del decorador.
+    """
+    return _nombre_rol(current_user) == "admin"
+
+
 def es_gestor(current_user: Usuario) -> bool:
     """True si el usuario puede gestionar registros de cualquier empleado (admin/rrhh)."""
     return _nombre_rol(current_user) in ROLES_GESTORES
@@ -226,6 +242,26 @@ def exigir_gestion_de_empleado(current_user: Usuario, id_empleado: int) -> None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Solo puedes gestionar tus propias solicitudes de vacación.",
+        )
+
+
+def exigir_gestion_de_usuario(current_user: Usuario, id_usuario: int) -> None:
+    """
+    Permite operar sobre una CUENTA si el actor es admin o si es su propia cuenta.
+    Si no, 403.
+
+    Compara contra usuario.id (la PK de rrhh.usuario), NO contra id_empleado: acá
+    el recurso es la cuenta de acceso, no el legajo. Por eso no pasa por
+    get_actor_empleado_id y una cuenta admin sin empleado vinculado no recibe el
+    400 de ese helper — puede cambiar su propia contraseña igual.
+    """
+    if es_admin(current_user):
+        return
+
+    if current_user.id != id_usuario:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo puedes gestionar tu propia cuenta de usuario.",
         )
 
 

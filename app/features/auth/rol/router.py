@@ -1,6 +1,13 @@
 """
 Router para Rol - Endpoints REST.
-Todos los endpoints están abiertos hasta Semana 9.
+
+RBAC aplicado el 2026-08-13 (antes sólo el DELETE tenía guard):
+- Crear/editar/eliminar roles: sólo admin.
+- Lectura del catálogo de roles: admin y rrhh (gestión de personal).
+
+Que POST /roles/ estuviera abierto era la primera mitad de una escalada de
+privilegios anónima: crear un rol y después un usuario con ese rol (POST
+/usuarios/, también abierto) daba un JWT de admin legítimo.
 """
 
 from typing import List
@@ -8,7 +15,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import require_admin
+from app.core.deps import require_admin, require_roles
 from app.features.auth.rol import schemas, services
 
 # Crear router con documentación
@@ -23,7 +30,8 @@ router = APIRouter(
     "/",
     response_model=schemas.RolRead,
     status_code=201,
-    summary="Crear nuevo rol"
+    summary="Crear nuevo rol",
+    dependencies=[Depends(require_admin)],
 )
 def create_rol(
     rol: schemas.RolCreate,
@@ -42,7 +50,8 @@ def create_rol(
 @router.get(
     "/",
     response_model=List[schemas.RolRead],
-    summary="Listar todos los roles"
+    summary="Listar todos los roles",
+    dependencies=[Depends(require_roles("admin", "rrhh"))],
 )
 def list_roles(
     skip: int = Query(0, ge=0, description="Cantidad de registros a saltar"),
@@ -62,7 +71,8 @@ def list_roles(
 @router.get(
     "/{rol_id}",
     response_model=schemas.RolRead,
-    summary="Obtener rol por ID"
+    summary="Obtener rol por ID",
+    dependencies=[Depends(require_roles("admin", "rrhh"))],
 )
 def get_rol(
     rol_id: int,
@@ -79,7 +89,8 @@ def get_rol(
 @router.put(
     "/{rol_id}",
     response_model=schemas.RolRead,
-    summary="Actualizar rol"
+    summary="Actualizar rol",
+    dependencies=[Depends(require_admin)],
 )
 def update_rol(
     rol_id: int,
@@ -116,7 +127,8 @@ def delete_rol(
 @router.patch(
     "/{rol_id}/toggle-activo",
     response_model=schemas.RolRead,
-    summary="Activar/desactivar rol"
+    summary="Activar/desactivar rol",
+    dependencies=[Depends(require_admin)],
 )
 def toggle_activo_rol(
     rol_id: int,
@@ -132,7 +144,8 @@ def toggle_activo_rol(
 
 @router.get(
     "/{rol_id}/usuarios/count",
-    summary="Contar usuarios del rol"
+    summary="Contar usuarios del rol",
+    dependencies=[Depends(require_roles("admin", "rrhh"))],
 )
 def count_usuarios(
     rol_id: int,

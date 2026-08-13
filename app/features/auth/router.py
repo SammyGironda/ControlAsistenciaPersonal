@@ -6,8 +6,10 @@ reimplementa acá: se delega en usuario_services.verify_credentials(), que ya
 resuelve el username case-insensitive, verifica que el usuario esté activo,
 compara el hash bcrypt y actualiza ultimo_acceso.
 
-POST /usuarios/verify-credentials se mantiene: el frontend actual todavía lo
-usa para el login (Frontend/src/api/auth.js).
+POST /usuarios/verify-credentials fue eliminado el 2026-08-13: estaba abierto,
+recibía la contraseña como query param y ya nadie lo llamaba (Frontend/src/api/auth.js
+pega contra este /login desde el 2026-08-10). El servicio que compartían,
+usuario_services.verify_credentials(), es el que sigue usando el login de acá.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -92,9 +94,9 @@ def read_current_user(current_user: Usuario = Depends(get_current_user)):
     Devuelve el usuario correspondiente al token enviado en
     `Authorization: Bearer <token>`.
 
-    Es el único endpoint protegido por ahora; el resto del backend sigue abierto
-    hasta que se apliquen los guards. Sirve además para que el frontend valide
-    un token guardado en localStorage al arrancar.
+    Sirve para que el frontend valide un token guardado en localStorage al
+    arrancar, y para que cualquier rol consulte su propia cuenta sin necesitar
+    los endpoints de /usuarios, reservados a admin y rrhh.
     """
     return schemas.UsuarioTokenInfo(
         id=current_user.id,
