@@ -62,7 +62,7 @@ async def upload_excel_marcaciones(
         )
 
     # Procesar archivo
-    resultado = services.procesar_archivo_excel(db, file, current_user.id_usuario)
+    resultado = services.procesar_archivo_excel(db, file, current_user.id)
     return UploadExcelResponse(**resultado)
 
 

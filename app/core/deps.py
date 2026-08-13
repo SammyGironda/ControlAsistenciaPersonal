@@ -17,7 +17,13 @@ get_actor_empleado_id() resuelve el id_empleado del usuario autenticado para pob
 columnas de auditoría con FK a empleado (id_aprobado_por, id_resuelto_por,
 id_cerrado_por, id_registrado_por) — ver 2026-08-10, "Reemplazar campos *_por
 client-supplied por el actor autenticado". Para columnas con FK a usuario
-(id_generado_por, id_subido_por) alcanza con current_user.id_usuario directo.
+(id_generado_por, id_subido_por) alcanza con current_user.id directo.
+
+OJO con el nombre: current_user es el objeto ORM Usuario releído de la base, y su PK
+se llama `id`. `id_usuario` es sólo un CLAIM del JWT (ver core/security.py), no un
+atributo del modelo: current_user.id_usuario levanta AttributeError -> 500. Esa
+confusión rompió los 4 generadores de /reportes y POST /marcaciones/upload-excel
+entre el 2026-08-10 y el 2026-08-13.
 
 exigir_lectura_de_empleado() / exigir_gestion_de_empleado() / alcance_lectura()
 son el guard de PERTENENCIA, no de rol: contestan "¿este recurso es de este

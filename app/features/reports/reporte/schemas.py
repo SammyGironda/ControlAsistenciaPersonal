@@ -16,7 +16,7 @@ class ReporteAsistenciaMensualRequest(BaseModel):
     Parametros para generar reporte de asistencia mensual en XLSX.
 
     id_generado_por ya no se acepta del cliente: se deriva del usuario
-    autenticado (current_user.id_usuario) en el router.
+    autenticado (current_user.id) en el router.
     """
 
     anio: int = Field(..., ge=2000, le=2100, description="Gestion a reportar")
@@ -30,7 +30,7 @@ class ReportePlanillaRequest(BaseModel):
     Parametros para generar reporte de planilla en XLSX.
 
     id_generado_por ya no se acepta del cliente: se deriva del usuario
-    autenticado (current_user.id_usuario) en el router.
+    autenticado (current_user.id) en el router.
     """
 
     anio: int = Field(..., ge=2000, le=2100, description="Gestion a reportar")
@@ -44,7 +44,7 @@ class ReporteVacacionesRequest(BaseModel):
     Parametros para generar reporte de vacaciones en XLSX.
 
     id_generado_por ya no se acepta del cliente: se deriva del usuario
-    autenticado (current_user.id_usuario) en el router.
+    autenticado (current_user.id) en el router.
     """
 
     gestion: int = Field(..., ge=2000, le=2100, description="Gestion a reportar")
@@ -57,7 +57,7 @@ class ReporteIndividualRequest(BaseModel):
     Parametros para generar reporte individual por empleado en PDF.
 
     id_generado_por ya no se acepta del cliente: se deriva del usuario
-    autenticado (current_user.id_usuario) en el router.
+    autenticado (current_user.id) en el router.
     """
 
     fecha_inicio: date = Field(..., description="Fecha de inicio del periodo")

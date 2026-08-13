@@ -41,7 +41,7 @@ def generar_asistencia_mensual(
 ):
     """Genera y registra reporte de asistencia mensual."""
 
-    return services.generar_reporte_asistencia_mensual(db, data, current_user.id_usuario)
+    return services.generar_reporte_asistencia_mensual(db, data, current_user.id)
 
 
 @router.post(
@@ -58,7 +58,7 @@ def generar_planilla(
 ):
     """Genera y registra reporte mensual de planilla."""
 
-    return services.generar_reporte_planilla(db, data, current_user.id_usuario)
+    return services.generar_reporte_planilla(db, data, current_user.id)
 
 
 @router.post(
@@ -75,7 +75,7 @@ def generar_vacaciones(
 ):
     """Genera y registra reporte de vacaciones por gestion."""
 
-    return services.generar_reporte_vacaciones(db, data, current_user.id_usuario)
+    return services.generar_reporte_vacaciones(db, data, current_user.id)
 
 
 @router.post(
@@ -93,7 +93,7 @@ def generar_individual(
 ):
     """Genera y registra reporte individual de un empleado en PDF."""
 
-    return services.generar_reporte_individual_pdf(db, id_empleado, data, current_user.id_usuario)
+    return services.generar_reporte_individual_pdf(db, id_empleado, data, current_user.id)
 
 
 @router.get(
