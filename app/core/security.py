@@ -1,14 +1,16 @@
 """
 Módulo de seguridad centralizado.
 
-Dos responsabilidades:
+Tres responsabilidades:
 - Contraseñas: bcrypt directo (sin passlib) para evitar incompatibilidades de versiones.
+- Contraseñas temporales: generación aleatoria con `secrets` para el alta de cuentas.
 - Tokens JWT: emisión y decodificación con PyJWT.
 
 Este módulo es capa de dominio: NO conoce FastAPI ni HTTP. Las excepciones de PyJWT
 se propagan tal cual y se traducen a 401 en app/core/deps.py.
 """
 
+import secrets
 from datetime import timedelta
 from typing import Any, Dict, Optional
 
@@ -31,6 +33,55 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     password_bytes = plain_password.encode("utf-8")
     hashed_bytes = hashed_password.encode("utf-8")
     return bcrypt.checkpw(password_bytes, hashed_bytes)
+
+
+# ============================================================
+# Contraseñas temporales
+# ============================================================
+
+# Sin 0/O/o, 1/l/I ni símbolos que se confundan al dictarlos: esta contraseña se
+# transmite en voz alta (teléfono, WhatsApp), no se copia y pega. Un carácter
+# ambiguo se traduce en un login fallido que parece un bug del sistema.
+_MAYUSCULAS = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+_MINUSCULAS = "abcdefghijkmnpqrstuvwxyz"
+_DIGITOS = "23456789"
+_SIMBOLOS = "!@#$%*+-="
+_ALFABETO_TEMPORAL = _MAYUSCULAS + _MINUSCULAS + _DIGITOS + _SIMBOLOS
+
+LONGITUD_PASSWORD_TEMPORAL = 12
+
+
+def generar_password_temporal(longitud: int = LONGITUD_PASSWORD_TEMPORAL) -> str:
+    """
+    Genera una contraseña temporal aleatoria, apta para dictarse en voz alta.
+
+    Garantiza al menos una mayúscula, una minúscula, un dígito y un símbolo:
+    los construye primero y baraja después. Sortear al azar y reintentar hasta
+    que cumpla sesgaría la distribución y, en el peor caso, no terminaría nunca.
+
+    Usa `secrets` y no `random`: `random` es un Mersenne Twister cuyo estado se
+    reconstruye a partir de unas pocas salidas, y esto es material de
+    autenticación.
+
+    La contraseña resultante cumple por construcción la política de
+    `validar_password_fuerte` (mín. 8, mayúscula, minúscula y dígito), así que el
+    usuario nunca recibe una temporal que el sistema rechazaría.
+    """
+    if longitud < 8:
+        raise ValueError("La contraseña temporal debe tener al menos 8 caracteres")
+
+    obligatorios = [
+        secrets.choice(_MAYUSCULAS),
+        secrets.choice(_MINUSCULAS),
+        secrets.choice(_DIGITOS),
+        secrets.choice(_SIMBOLOS),
+    ]
+    resto = [secrets.choice(_ALFABETO_TEMPORAL) for _ in range(longitud - len(obligatorios))]
+
+    caracteres = obligatorios + resto
+    secrets.SystemRandom().shuffle(caracteres)
+
+    return "".join(caracteres)
 
 
 # ============================================================

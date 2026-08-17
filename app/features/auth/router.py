@@ -80,6 +80,7 @@ def login(
             id_rol=usuario.id_rol,
             nombre_rol=usuario.rol.nombre,
             id_empleado=usuario.id_empleado,
+            requiere_cambio_password=usuario.requiere_cambio_password,
         ),
     )
 
@@ -104,4 +105,35 @@ def read_current_user(current_user: Usuario = Depends(get_current_user)):
         id_rol=current_user.id_rol,
         nombre_rol=current_user.rol.nombre,
         id_empleado=current_user.id_empleado,
+        requiere_cambio_password=current_user.requiere_cambio_password,
     )
+
+
+@router.post(
+    "/cambiar-password-obligatorio",
+    summary="Cambiar la contraseña temporal propia",
+)
+def cambiar_password_obligatorio(
+    datos: schemas.CambioPasswordObligatorioRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """
+    El usuario autenticado reemplaza su contraseña temporal y baja el flag
+    `requiere_cambio_password`.
+
+    Vive en /auth y no en /usuarios porque **no lleva `usuario_id` en el path**:
+    opera siempre sobre la cuenta del token. Eso elimina de raíz el guard de
+    pertenencia que sí necesita `/usuarios/{id}/change-password`, y hace que
+    cualquier rol pueda usarlo sobre lo suyo y sólo sobre lo suyo.
+
+    Requiere:
+    - **password_actual**: la contraseña vigente (la temporal que entregó el admin)
+    - **password_nueva**: mínimo 8 caracteres, con mayúscula, minúscula y dígito
+
+    Devuelve 400 si la contraseña actual no es correcta o si la nueva es igual a
+    la actual, y 422 si la nueva no cumple la política.
+    """
+    # current_user.id — la PK del modelo. `id_usuario` es sólo un claim del JWT y
+    # no existe como atributo del objeto ORM (ver core/deps.py).
+    return usuario_services.cambiar_password_obligatorio(db, current_user.id, datos)

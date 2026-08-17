@@ -9,7 +9,7 @@ IMPORTANTE:
 
 from datetime import datetime
 from typing import Optional, TYPE_CHECKING
-from sqlalchemy import String, Boolean, Integer, ForeignKey, Text
+from sqlalchemy import String, Boolean, Integer, ForeignKey, Text, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.security import hash_password, verify_password
 
@@ -65,6 +65,13 @@ class Usuario(Base):
 
     # --- Estado del usuario ---
     activo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    requiere_cambio_password: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default=text("false"),
+        nullable=False,
+        comment="TRUE mientras la cuenta tenga una contraseña temporal fijada por el admin"
+    )
     ultimo_acceso: Mapped[Optional[datetime]] = mapped_column(nullable=True)
 
     # --- Auditoría ---

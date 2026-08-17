@@ -6,7 +6,9 @@ Acá sólo están los DTOs propios del login, que no mapean a ninguna tabla.
 """
 
 from typing import Optional
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
+
+from app.features.auth.usuario.schemas import validar_password_fuerte
 
 
 # ============================================================
@@ -34,6 +36,32 @@ class LoginRequest(BaseModel):
     )
 
 
+class CambioPasswordObligatorioRequest(BaseModel):
+    """
+    Cambio de la contraseña temporal por parte de su propio dueño.
+
+    `password_actual` no lleva política de fortaleza: es la contraseña que ya
+    existe (normalmente una temporal generada por el backend), no una que el
+    usuario esté eligiendo. La política se exige sobre `password_nueva`.
+    """
+    password_actual: str = Field(..., min_length=1, max_length=100)
+    password_nueva: str = Field(..., min_length=8, max_length=100)
+
+    @field_validator("password_nueva")
+    @classmethod
+    def _password_fuerte(cls, valor: str) -> str:
+        return validar_password_fuerte(valor)
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "password_actual": "Temp4X-9kRmz",
+                "password_nueva": "MiClaveNueva1"
+            }
+        }
+    )
+
+
 # ============================================================
 # RESPONSE
 # ============================================================
@@ -51,6 +79,11 @@ class UsuarioTokenInfo(BaseModel):
     id_rol: int
     nombre_rol: str
     id_empleado: Optional[int] = None
+    # Lo consume el frontend para mandar al cambio obligatorio antes de dejar
+    # entrar al resto del sistema. NO es un claim del JWT a propósito: los claims
+    # son una foto del momento de la emisión y este valor cambia durante la
+    # sesión. Viaja en la respuesta de /login y de /me, que releen la base.
+    requiere_cambio_password: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -73,7 +106,8 @@ class TokenResponse(BaseModel):
                     "username": "admin",
                     "id_rol": 1,
                     "nombre_rol": "admin",
-                    "id_empleado": 1
+                    "id_empleado": 1,
+                    "requiere_cambio_password": False
                 }
             }
         }

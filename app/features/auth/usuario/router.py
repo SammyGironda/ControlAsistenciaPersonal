@@ -5,6 +5,14 @@ RBAC aplicado el 2026-08-13 (antes sólo el DELETE tenía guard):
 - Crear/editar/eliminar cuentas: sólo admin.
 - Lectura del padrón de usuarios: admin y rrhh (gestión de personal).
 - Cambio de contraseña: el propio usuario sobre su cuenta, o admin.
+- Reseteo de contraseña: sólo admin (no pide la contraseña actual).
+
+Alta con contraseña temporal (2026-08-17): POST / ya no recibe username ni
+password. El backend deriva el username del nombre del empleado, genera una
+contraseña aleatoria y marca la cuenta con requiere_cambio_password. Esa
+contraseña viaja en texto plano SÓLO en la respuesta del alta y del reseteo, para
+que el admin se la comunique al usuario; el usuario la reemplaza con
+POST /api/v1/auth/cambiar-password-obligatorio.
 
 POST /verify-credentials fue eliminado en ese mismo cambio: estaba abierto,
 recibía la contraseña como query param (o sea que quedaba en los logs de acceso)
@@ -36,9 +44,9 @@ router = APIRouter(
 
 @router.post(
     "/",
-    response_model=schemas.UsuarioRead,
+    response_model=schemas.UsuarioCreadoResponse,
     status_code=201,
-    summary="Crear nuevo usuario",
+    summary="Crear cuenta con contraseña temporal",
     dependencies=[Depends(require_admin)],
 )
 def create_usuario(
@@ -46,14 +54,27 @@ def create_usuario(
     db: Session = Depends(get_db)
 ):
     """
-    Crea un nuevo usuario en el sistema. Sólo admin.
+    Crea la cuenta de un empleado. Sólo admin.
 
-    - **username**: Username único (3-50 caracteres)
-    - **password**: Contraseña (mínimo 6 caracteres, será hasheada)
-    - **id_rol**: ID del rol asignado
-    - **id_empleado**: ID del empleado vinculado (opcional)
+    - **id_empleado**: empleado al que pertenece la cuenta (obligatorio: de su
+      nombre se deriva el username, con el formato `primernombre.apellido` y un
+      sufijo numérico si ya está tomado)
+    - **id_rol**: admin, rrhh o supervisor. `empleado` y `consulta` se rechazan
+      con 400 mientras no existan pantallas de autoservicio
+    - **activo**: estado inicial de la cuenta
+
+    La contraseña la genera el backend y la cuenta nace con
+    `requiere_cambio_password`. **La respuesta trae esa contraseña en texto plano
+    y es el único lugar donde aparece**: comunicarla al usuario antes de cerrar la
+    pantalla. Si se pierde, se genera otra con
+    `POST /usuarios/{id}/resetear-password`.
     """
-    return services.create_usuario(db, usuario)
+    creado, password_temporal = services.create_usuario(db, usuario)
+
+    return schemas.UsuarioCreadoResponse(
+        **schemas.UsuarioRead.model_validate(creado).model_dump(),
+        password_temporal=password_temporal,
+    )
 
 
 @router.get(
@@ -181,6 +202,36 @@ def toggle_activo_usuario(
     Alternativa más segura al hard delete.
     """
     return services.toggle_activo(db, usuario_id)
+
+
+@router.post(
+    "/{usuario_id}/resetear-password",
+    response_model=schemas.PasswordReseteadaResponse,
+    summary="Resetear contraseña (genera una temporal nueva)",
+    dependencies=[Depends(require_admin)],
+)
+def resetear_password(
+    usuario_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Asigna una contraseña temporal nueva y vuelve a exigir el cambio en el
+    próximo login. Sólo admin.
+
+    Es la vía de recuperación del sistema — no hay envío por correo — y por eso,
+    a diferencia de `change-password`, **no pide la contraseña actual**. Ese
+    poder es justamente lo que la restringe a admin.
+
+    **La respuesta trae la contraseña en texto plano y no se vuelve a mostrar.**
+    """
+    usuario, password_temporal = services.resetear_password(db, usuario_id)
+
+    return schemas.PasswordReseteadaResponse(
+        id=usuario.id,
+        username=usuario.username,
+        password_temporal=password_temporal,
+        requiere_cambio_password=usuario.requiere_cambio_password,
+    )
 
 
 @router.post(

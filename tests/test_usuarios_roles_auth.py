@@ -76,6 +76,7 @@ CASOS = [
     (router_usuarios, "PUT", "/usuarios/{usuario_id}", SOLO_ADMIN),
     (router_usuarios, "DELETE", "/usuarios/{usuario_id}", SOLO_ADMIN),
     (router_usuarios, "PATCH", "/usuarios/{usuario_id}/toggle-activo", SOLO_ADMIN),
+    (router_usuarios, "POST", "/usuarios/{usuario_id}/resetear-password", SOLO_ADMIN),
     (router_roles, "POST", "/roles/", SOLO_ADMIN),
     (router_roles, "GET", "/roles/", GESTORES),
     (router_roles, "GET", "/roles/{rol_id}", GESTORES),
@@ -182,7 +183,7 @@ def test_rrhh_no_puede_escribir_usuarios_ni_roles():
         for router, metodo, ruta, permitidos in CASOS
         if permitidos == SOLO_ADMIN
     ]
-    assert len(escrituras) == 8
+    assert len(escrituras) == 9
 
     for router, metodo, ruta in escrituras:
         guard = _guards_de_rol(router, metodo, ruta)[0]
@@ -202,15 +203,17 @@ def test_los_prefijos_de_los_routers_no_cambiaron():
     assert router_roles.prefix == "/roles"
 
 
-def test_el_router_de_usuarios_expone_exactamente_ocho_rutas():
+def test_el_router_de_usuarios_expone_exactamente_nueve_rutas():
     """
-    7 con guard declarativo + change-password, que lo tiene en el cuerpo.
+    8 con guard declarativo + change-password, que lo tiene en el cuerpo.
 
-    Si aparece una novena, este test falla y obliga a decidir su guard en vez de
+    Si aparece una décima, este test falla y obliga a decidir su guard en vez de
     dejarla abierta sin que nadie lo note. Fija además que verify-credentials
-    quedó eliminada (eran 9).
+    quedó eliminada.
+
+    Eran 8 hasta el 2026-08-17, cuando se sumó POST /{id}/resetear-password.
     """
-    assert len(router_usuarios.routes) == 8
+    assert len(router_usuarios.routes) == 9
 
 
 def test_el_router_de_roles_expone_exactamente_siete_rutas():
