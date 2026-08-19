@@ -2,8 +2,17 @@
 Router para endpoints de Ajuste Salarial, Decretos e Impuestos.
 
 create_ajuste_salarial y aplicar_decreto exigen admin/rrhh y derivan
-id_aprobado_por del usuario autenticado (get_actor_empleado_id); el resto de
-endpoints de este router sigue sin guard (fuera de alcance de este cambio).
+id_aprobado_por del usuario autenticado (get_actor_empleado_id).
+
+Las 5 rutas de /parametros-impuesto están cerradas (2026-08-19): escritura
+admin, lectura admin+rrhh. La lectura se puede cerrar por rol sin romper nada
+porque esos GET no tienen otro consumidor — el frontend no tenía cliente de este
+módulo, y el único uso de parametro_impuesto en el backend es la vista SQL
+v_saldo_impuestos_planilla, que lee la tabla directamente y no por HTTP.
+
+Los endpoints de ajustes (salvo POST /) y los de decretos siguen sin guard
+(fuera de alcance de ese cambio). Ojo con POST /decretos, que es escritura de
+datos salariales y está abierto.
 """
 
 from typing import List, Optional
@@ -205,21 +214,40 @@ def aplicar_decreto(
     response_model=ParametroImpuestoResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Crear parámetro de impuesto",
-    description="Registra una nueva tasa vigente (RC_IVA, AFP_LABORAL, etc.)"
+    description=(
+        "Registra una nueva tasa vigente (RC_IVA, AFP_LABORAL, etc.) y cierra la "
+        "vigencia de la anterior del mismo concepto en la misma transacción."
+    ),
+    dependencies=[Depends(require_admin)],
 )
 def create_parametro_impuesto(
     data: ParametroImpuestoCreate,
     db: Session = Depends(get_db)
 ):
-    """Crea un nuevo parámetro de impuesto."""
+    """Crea un nuevo parámetro de impuesto y cierra la tasa anterior."""
     return services.create_parametro_impuesto(db, data)
+
+
+@router.get(
+    "/parametros-impuesto",
+    response_model=List[ParametroImpuestoResponse],
+    summary="Todas las tasas registradas",
+    description="Retorna todas las tasas, vigentes e históricas, de todos los conceptos",
+    dependencies=[Depends(require_roles("admin", "rrhh"))],
+)
+def get_all_parametros_impuesto(
+    db: Session = Depends(get_db)
+):
+    """Todas las tasas, para la pantalla de impuestos (vigentes + historial)."""
+    return services.get_all_parametros_impuesto(db)
 
 
 @router.get(
     "/parametros-impuesto/vigente/{nombre}",
     response_model=Optional[ParametroImpuestoResponse],
     summary="Obtener parámetro vigente",
-    description="Retorna la tasa vigente actual de un concepto"
+    description="Retorna la tasa vigente actual de un concepto",
+    dependencies=[Depends(require_roles("admin", "rrhh"))],
 )
 def get_parametro_vigente(
     nombre: str = Path(..., description="Nombre del concepto (ej: RC_IVA, AFP_LABORAL)"),
@@ -240,7 +268,8 @@ def get_parametro_vigente(
     "/parametros-impuesto/historial/{nombre}",
     response_model=List[ParametroImpuestoResponse],
     summary="Historial de parámetro",
-    description="Retorna el historial completo de cambios de un concepto"
+    description="Retorna el historial completo de cambios de un concepto",
+    dependencies=[Depends(require_roles("admin", "rrhh"))],
 )
 def get_historial_parametro(
     nombre: str = Path(...),
@@ -256,7 +285,8 @@ def get_historial_parametro(
     "/parametros-impuesto/vigentes",
     response_model=List[ParametroImpuestoResponse],
     summary="Todos los parámetros vigentes",
-    description="Retorna todos los parámetros vigentes actualmente"
+    description="Retorna todos los parámetros vigentes actualmente",
+    dependencies=[Depends(require_roles("admin", "rrhh"))],
 )
 def get_parametros_vigentes(
     db: Session = Depends(get_db)

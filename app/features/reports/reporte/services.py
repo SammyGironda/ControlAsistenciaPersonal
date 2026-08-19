@@ -91,8 +91,47 @@ def _registrar_reporte(
     return reporte
 
 
-def _exportar_xlsx(filas: list[dict], ruta_archivo: Path, nombre_hoja: str) -> None:
-    """Exporta un listado de diccionarios a archivo XLSX."""
+# Salvedad que acompaña al reporte de planilla. El salario_neto_estimado que
+# calcula rrhh.v_saldo_impuestos_planilla NO es definitivo: la base imponible
+# del RC-IVA está mal calculada (aplica el 13% sobre el bruto menos descuentos
+# de asistencia, sin restar los 2 SMN del mínimo no imponible ni el aporte AFP,
+# y sin crédito fiscal por facturas). Ver la sección de severidad ALTA en
+# CLAUDE.md. Va como hoja aparte y no como columna extra para no alterar la
+# grilla de datos que ya consumen otros.
+ADVERTENCIA_PLANILLA = [
+    "ADVERTENCIA SOBRE ESTE REPORTE",
+    "",
+    "La columna 'salario_neto_estimado' es PRELIMINAR y no debe usarse para",
+    "liquidacion oficial ni para pago.",
+    "",
+    "La base imponible del RC-IVA esta incompleta: se aplica el 13% sobre el",
+    "salario bruto menos descuentos de asistencia, sin descontar antes:",
+    "  1. Los 2 salarios minimos nacionales del minimo no imponible.",
+    "  2. El aporte laboral a pensiones (AFP / Gestora Publica).",
+    "  3. El credito fiscal por facturas presentadas por el empleado.",
+    "",
+    "Las tres omisiones SOBREESTIMAN el impuesto, por lo que el neto mostrado",
+    "es MENOR al que corresponde.",
+    "",
+    "Las tasas aplicadas salen de rrhh.parametro_impuesto y se consultan en",
+    "Configuracion > Impuestos y Descuentos.",
+]
+
+
+def _exportar_xlsx(
+    filas: list[dict],
+    ruta_archivo: Path,
+    nombre_hoja: str,
+    nota: list[str] | None = None,
+    nombre_hoja_nota: str = "ADVERTENCIA",
+) -> None:
+    """
+    Exporta un listado de diccionarios a archivo XLSX.
+
+    `nota` agrega una hoja extra con texto libre (una fila por elemento). Si es
+    None el archivo sale exactamente igual que antes, que es lo que necesitan
+    los otros tres generadores.
+    """
 
     dataframe = pd.DataFrame(filas)
 
@@ -109,7 +148,16 @@ def _exportar_xlsx(filas: list[dict], ruta_archivo: Path, nombre_hoja: str) -> N
             # Si no se puede convertir, dejar el valor tal cual (p. ej. strings u objetos mixtos)
             continue
 
-    dataframe.to_excel(ruta_archivo, index=False, sheet_name=nombre_hoja)
+    if nota is None:
+        dataframe.to_excel(ruta_archivo, index=False, sheet_name=nombre_hoja)
+        return
+
+    with pd.ExcelWriter(ruta_archivo) as writer:
+        dataframe.to_excel(writer, index=False, sheet_name=nombre_hoja)
+        # header=False para que no aparezca un titulo de columna sobre el texto.
+        pd.DataFrame(nota).to_excel(
+            writer, index=False, header=False, sheet_name=nombre_hoja_nota
+        )
 
 
 def obtener_reporte(db: Session, reporte_id: int) -> Reporte:
@@ -312,7 +360,10 @@ def generar_reporte_planilla(db: Session, data: ReportePlanillaRequest, id_gener
     carpeta = _asegurar_carpeta(TipoReporteEnum.planilla)
     nombre_archivo = _nombre_archivo(TipoReporteEnum.planilla, "xlsx")
     ruta_archivo = carpeta / nombre_archivo
-    _exportar_xlsx([dict(fila) for fila in filas], ruta_archivo, "Planilla")
+    _exportar_xlsx(
+        [dict(fila) for fila in filas], ruta_archivo, "Planilla",
+        nota=ADVERTENCIA_PLANILLA,
+    )
 
     return _registrar_reporte(
         db,

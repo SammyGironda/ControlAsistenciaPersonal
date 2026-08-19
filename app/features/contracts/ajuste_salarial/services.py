@@ -3,7 +3,7 @@ Services para ajustes salariales, decretos e impuestos.
 Incluye lógica para aplicación masiva de decretos.
 """
 
-from datetime import date
+from datetime import date, timedelta
 from typing import List, Optional, Dict, Any
 from decimal import Decimal
 from sqlalchemy.orm import Session
@@ -412,13 +412,77 @@ def aplicar_decreto_anual(
 # PARAMETRO IMPUESTO - CRUD
 # ============================================================
 
+def get_ultimo_parametro(db: Session, nombre: str) -> Optional[ParametroImpuesto]:
+    """
+    Última versión registrada de un concepto, vigente o no.
+
+    Desempata por (fecha_vigencia_inicio, id) para ser determinístico incluso si
+    dos filas comparten fecha de inicio.
+    """
+    return db.query(ParametroImpuesto).filter(
+        ParametroImpuesto.nombre == nombre
+    ).order_by(
+        ParametroImpuesto.fecha_vigencia_inicio.desc(),
+        ParametroImpuesto.id.desc(),
+    ).first()
+
+
 def create_parametro_impuesto(db: Session, data: ParametroImpuestoCreate) -> ParametroImpuesto:
     """
-    Crea un nuevo parámetro de impuesto.
-    
-    Si ya existe un parámetro con el mismo nombre vigente, se debe cerrar
-    manualmente (establecer fecha_vigencia_fin) antes de crear el nuevo.
+    Registra una tasa nueva y CIERRA la vigencia de la anterior del mismo
+    concepto, en la misma transacción.
+
+    Antes esto no lo hacía nadie: el docstring decía "se debe cerrar
+    manualmente", pero como no hay endpoint de UPDATE, "manualmente" significaba
+    SQL directo contra la base. El resultado era que dos filas del mismo
+    concepto quedaban abiertas a la vez y cada consumidor desempataba distinto.
+
+    El cierre va en la MISMA transacción que el alta a propósito: si la tasa
+    nueva se insertara y el cierre de la vieja quedara en otro commit, un fallo
+    entre ambos dejaría el concepto con dos tasas vigentes — que es exactamente
+    el estado que esta función existe para evitar.
     """
+    anterior = get_ultimo_parametro(db, data.nombre)
+
+    # Validar ANTES de mutar nada: si alguna de estas condiciones falla después
+    # de tocar `anterior`, la sesión queda con valores inválidos.
+    if anterior is not None:
+        if anterior.tipo_aporte != data.tipo_aporte:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"El concepto '{data.nombre}' ya está registrado como "
+                    f"{anterior.tipo_aporte}, no como {data.tipo_aporte}. "
+                    "Un concepto no cambia de tipo de aporte: si es un concepto "
+                    "distinto, usá otro nombre."
+                ),
+            )
+
+        if data.fecha_vigencia_inicio <= anterior.fecha_vigencia_inicio:
+            # Sin este chequeo el cierre calcularía fecha_vigencia_fin <=
+            # fecha_vigencia_inicio y violaría chk_parametro_fechas: el usuario
+            # recibiría un IntegrityError como 500 en vez de un 400 legible.
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"La nueva tasa de '{data.nombre}' debe empezar después del "
+                    f"{anterior.fecha_vigencia_inicio.isoformat()}, que es cuando "
+                    "empieza la tasa que reemplaza."
+                ),
+            )
+
+        if (
+            anterior.fecha_vigencia_fin is not None
+            and data.fecha_vigencia_inicio <= anterior.fecha_vigencia_fin
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"La nueva tasa de '{data.nombre}' se solapa con la anterior, "
+                    f"que rige hasta el {anterior.fecha_vigencia_fin.isoformat()}."
+                ),
+            )
+
     parametro = ParametroImpuesto(
         nombre=data.nombre,
         tipo_aporte=data.tipo_aporte,
@@ -427,11 +491,18 @@ def create_parametro_impuesto(db: Session, data: ParametroImpuestoCreate) -> Par
         fecha_vigencia_fin=data.fecha_vigencia_fin,
         descripcion=data.descripcion
     )
-    
+
+    if anterior is not None and anterior.fecha_vigencia_fin is None:
+        # Un día antes, no el mismo día: tanto get_parametro_vigente como la
+        # vista v_saldo_impuestos_planilla filtran `fecha_vigencia_fin >= fecha`
+        # (inclusive), así que cerrar en la misma fecha dejaría un día con las
+        # dos tasas vigentes.
+        anterior.fecha_vigencia_fin = data.fecha_vigencia_inicio - timedelta(days=1)
+
     db.add(parametro)
     db.commit()
     db.refresh(parametro)
-    
+
     return parametro
 
 
@@ -472,27 +543,51 @@ def get_historial_parametro(
     ).order_by(ParametroImpuesto.fecha_vigencia_inicio.desc()).offset(skip).limit(limit).all()
 
 
+def get_all_parametros_impuesto(db: Session) -> List[ParametroImpuesto]:
+    """
+    Todas las tasas registradas, vigentes e históricas.
+
+    La pantalla de impuestos necesita vigentes E historial de todos los
+    conceptos en una sola carga. Armarlo con get_all_parametros_vigentes() más
+    un get_historial_parametro() por concepto tiene un agujero: un concepto
+    cuya vigencia se cerró y nunca se reemplazó no aparece entre los vigentes,
+    así que su historial nunca se pediría y el concepto desaparecería.
+    """
+    return db.query(ParametroImpuesto).order_by(
+        ParametroImpuesto.nombre.asc(),
+        ParametroImpuesto.fecha_vigencia_inicio.desc(),
+    ).all()
+
+
 def get_all_parametros_vigentes(db: Session) -> List[ParametroImpuesto]:
     """
     Obtiene todos los parámetros vigentes actualmente.
-    
+
     Retorna el último parámetro vigente de cada concepto.
     """
-    # Subconsulta para obtener el máximo id por nombre (el más reciente vigente)
+    hoy = date.today()
+
+    # Desempata por fecha_vigencia_inicio, igual que get_parametro_vigente y que
+    # la vista v_saldo_impuestos_planilla. Antes usaba MAX(id): con dos filas
+    # vigentes del mismo concepto, este endpoint y la vista podían discrepar
+    # sobre cuál tasa está rigiendo.
     subquery = db.query(
-        ParametroImpuesto.nombre,
-        func.max(ParametroImpuesto.id).label('max_id')
+        ParametroImpuesto.nombre.label('nombre'),
+        func.max(ParametroImpuesto.fecha_vigencia_inicio).label('max_inicio')
     ).filter(
         and_(
-            ParametroImpuesto.fecha_vigencia_inicio <= date.today(),
+            ParametroImpuesto.fecha_vigencia_inicio <= hoy,
             or_(
                 ParametroImpuesto.fecha_vigencia_fin.is_(None),
-                ParametroImpuesto.fecha_vigencia_fin >= date.today()
+                ParametroImpuesto.fecha_vigencia_fin >= hoy
             )
         )
     ).group_by(ParametroImpuesto.nombre).subquery()
-    
+
     return db.query(ParametroImpuesto).join(
         subquery,
-        ParametroImpuesto.id == subquery.c.max_id
-    ).all()
+        and_(
+            ParametroImpuesto.nombre == subquery.c.nombre,
+            ParametroImpuesto.fecha_vigencia_inicio == subquery.c.max_inicio,
+        )
+    ).order_by(ParametroImpuesto.nombre.asc()).all()
