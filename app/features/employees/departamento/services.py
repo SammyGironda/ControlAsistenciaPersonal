@@ -60,6 +60,42 @@ def get_departamento_by_id(db: Session, departamento_id: int) -> Optional[Depart
     return db.query(Departamento).filter(Departamento.id == departamento_id).first()
 
 
+def _generaria_ciclo(db: Session, departamento_id: int, nuevo_padre_id: int) -> bool:
+    """
+    ¿Colgar `departamento_id` de `nuevo_padre_id` cerraria un ciclo en la jerarquia?
+
+    Sube por la cadena de ancestros del padre propuesto siguiendo `id_padre`. Si
+    en el camino aparece el propio `departamento_id`, el movimiento lo dejaria
+    siendo su propio ancestro (A -> B -> A) y la jerarquia dejaria de ser un
+    arbol: `get_departamentos_raiz` no lo alcanzaria nunca (ninguno de los dos
+    tendria `id_padre IS NULL`) y un render recursivo en el cliente entraria en
+    bucle infinito.
+
+    El `set` de visitados NO es defensivo de mas: si la base ya quedo con un
+    ciclo por datos cargados antes de esta validacion, sin el corte este while
+    no termina.
+    """
+    visitados: set[int] = set()
+    actual_id: Optional[int] = nuevo_padre_id
+
+    while actual_id is not None:
+        if actual_id == departamento_id:
+            return True
+        if actual_id in visitados:
+            # Ciclo preexistente entre ancestros, ajeno a este movimiento.
+            # No involucra a departamento_id, asi que no es este UPDATE el que
+            # lo introduce: cortar y dejar pasar.
+            return False
+        visitados.add(actual_id)
+
+        ancestro = db.query(Departamento).filter(Departamento.id == actual_id).first()
+        if ancestro is None:
+            return False
+        actual_id = ancestro.id_padre
+
+    return False
+
+
 def get_all_departamentos(
     db: Session,
     skip: int = 0,
@@ -128,7 +164,19 @@ def update_departamento(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=f"No existe el departamento padre con id {data.id_padre}"
                 )
-    
+
+            # El check de auto-padre de arriba solo cubre el ciclo de largo 1.
+            # Este cubre los profundos: A -> B y despues mover A bajo B.
+            if _generaria_ciclo(db, departamento_id, data.id_padre):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        "No se puede asignar ese departamento padre porque "
+                        "generaría un ciclo en la jerarquía"
+                    )
+                )
+
+
     # Aplicar cambios
     update_data = data.model_dump(exclude_unset=True)
     for field, value in update_data.items():

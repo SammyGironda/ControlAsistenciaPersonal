@@ -1,6 +1,23 @@
 """
 Router para endpoints de Departamento.
-Todos los endpoints están abiertos (sin autenticación hasta Semana 9).
+
+Reparto de roles (aplicado el 2026-08-19; antes las 7 rutas estaban abiertas):
+
+- **Escritura** (crear / actualizar / desactivar) -> `require_admin`. Reorganizar
+  la estructura organizacional es administracion del sistema, no gestion de
+  personal: mover un departamento cambia a que unidad pertenecen sus empleados.
+- **Lectura** (los 4 GET) -> `get_current_user`, o sea cualquier usuario
+  autenticado, y NO `require_roles("admin", "rrhh")`.
+
+  El motivo es concreto: `GET /departamentos/` alimenta el desplegable
+  "Area / Departamento" del formulario de empleados, y el item "Empleados" del
+  Sidebar no esta reservado por rol. Con un guard de admin+rrhh, un supervisor
+  abriria ese formulario y veria el desplegable vacio por un 403. El catalogo
+  organizacional no es dato sensible; lo que hay que proteger es modificarlo.
+
+Ninguna ruta necesita guard de pertenencia: un departamento no tiene dueño, asi
+que los 7 guards son declarativos (`dependencies=[...]` en el decorador) y las
+firmas de las funciones no cambian.
 """
 
 from typing import List
@@ -8,6 +25,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.deps import get_current_user, require_admin
 from app.features.employees.departamento import services
 from app.features.employees.departamento.schemas import (
     DepartamentoCreate,
@@ -27,7 +45,8 @@ router = APIRouter(
     response_model=DepartamentoResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Crear departamento",
-    description="Crea un nuevo departamento organizacional. Puede ser raíz (id_padre=NULL) o hijo."
+    description="Crea un nuevo departamento organizacional. Puede ser raíz (id_padre=NULL) o hijo.",
+    dependencies=[Depends(require_admin)]
 )
 def create_departamento(
     data: DepartamentoCreate,
@@ -48,7 +67,8 @@ def create_departamento(
     "/",
     response_model=List[DepartamentoResponse],
     summary="Listar departamentos",
-    description="Obtiene todos los departamentos con paginación opcional"
+    description="Obtiene todos los departamentos con paginación opcional",
+    dependencies=[Depends(get_current_user)]
 )
 def get_all_departamentos(
     skip: int = Query(0, ge=0, description="Offset para paginación"),
@@ -64,7 +84,8 @@ def get_all_departamentos(
     "/raiz",
     response_model=List[DepartamentoConHijos],
     summary="Obtener árbol organizacional completo",
-    description="Retorna todos los departamentos raíz con su jerarquía completa de hijos"
+    description="Retorna todos los departamentos raíz con su jerarquía completa de hijos",
+    dependencies=[Depends(get_current_user)]
 )
 def get_departamentos_raiz(db: Session = Depends(get_db)):
     """
@@ -80,7 +101,8 @@ def get_departamentos_raiz(db: Session = Depends(get_db)):
     "/{departamento_id}",
     response_model=DepartamentoResponse,
     summary="Obtener departamento por ID",
-    description="Retorna un departamento específico por su ID"
+    description="Retorna un departamento específico por su ID",
+    dependencies=[Depends(get_current_user)]
 )
 def get_departamento(
     departamento_id: int,
@@ -100,7 +122,8 @@ def get_departamento(
     "/{departamento_id}/jerarquia",
     response_model=DepartamentoConHijos,
     summary="Obtener departamento con jerarquía de hijos",
-    description="Retorna un departamento con todos sus subdepartamentos (recursivo)"
+    description="Retorna un departamento con todos sus subdepartamentos (recursivo)",
+    dependencies=[Depends(get_current_user)]
 )
 def get_jerarquia_departamento(
     departamento_id: int,
@@ -119,7 +142,8 @@ def get_jerarquia_departamento(
     "/{departamento_id}",
     response_model=DepartamentoResponse,
     summary="Actualizar departamento",
-    description="Actualiza los datos de un departamento existente"
+    description="Actualiza los datos de un departamento existente",
+    dependencies=[Depends(require_admin)]
 )
 def update_departamento(
     departamento_id: int,
@@ -134,7 +158,8 @@ def update_departamento(
     "/{departamento_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Eliminar departamento",
-    description="Elimina (soft delete) un departamento. No permite eliminar si tiene hijos, cargos o empleados activos."
+    description="Elimina (soft delete) un departamento. No permite eliminar si tiene hijos, cargos o empleados activos.",
+    dependencies=[Depends(require_admin)]
 )
 def delete_departamento(
     departamento_id: int,
