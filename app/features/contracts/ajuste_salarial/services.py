@@ -15,7 +15,7 @@ from app.features.contracts.ajuste_salarial.models import (
     ParametroImpuesto, MotivoAjusteEnum
 )
 from app.features.contracts.ajuste_salarial.schemas import (
-    AjusteSalarialCreate, DecretoCreate, CondicionDecretoCreate,
+    AjusteSalarialCreate, DecretoCreate, DecretoUpdate, CondicionDecretoCreate,
     ParametroImpuestoCreate
 )
 from app.features.contracts.contrato.models import Contrato, TipoContratoEnum, EstadoContratoEnum
@@ -234,6 +234,98 @@ def get_all_decretos(db: Session, skip: int = 0, limit: int = 100) -> List[Decre
     return db.query(DecretoIncrementoSalarial).order_by(
         DecretoIncrementoSalarial.anio.desc()
     ).offset(skip).limit(limit).all()
+
+
+def contar_ajustes_de_decreto(db: Session, decreto_id: int) -> int:
+    """
+    Cuenta cuántos AjusteSalarial se generaron bajo un decreto.
+
+    AjusteSalarial no tiene FK directa a DecretoIncrementoSalarial —sólo a
+    CondicionDecreto vía id_condicion_decreto—, así que el join es de dos
+    saltos. Lo usan tanto la trazabilidad (para saber si tiene ajustes) como
+    `actualizar_decreto` (para decidir si se puede editar).
+    """
+    return db.query(AjusteSalarial).join(
+        CondicionDecreto, AjusteSalarial.id_condicion_decreto == CondicionDecreto.id
+    ).filter(CondicionDecreto.id_decreto == decreto_id).count()
+
+
+def get_ajustes_by_decreto(db: Session, decreto_id: int) -> List[AjusteSalarial]:
+    """
+    Ajustes salariales generados bajo un decreto (trazabilidad).
+
+    Mismo join de dos saltos que `contar_ajustes_de_decreto`: no hay FK
+    directa decreto → ajuste, sólo decreto → condición → ajuste.
+    """
+    return db.query(AjusteSalarial).join(
+        CondicionDecreto, AjusteSalarial.id_condicion_decreto == CondicionDecreto.id
+    ).filter(
+        CondicionDecreto.id_decreto == decreto_id
+    ).order_by(AjusteSalarial.fecha_vigencia.desc(), AjusteSalarial.id.desc()).all()
+
+
+def actualizar_decreto(db: Session, decreto_id: int, data: DecretoUpdate) -> DecretoIncrementoSalarial:
+    """
+    Reemplaza cabecera + tramos completos de un decreto existente.
+
+    Bloqueado si el decreto ya generó algún AjusteSalarial: CondicionDecreto
+    tiene cascade="all, delete-orphan" y AjusteSalarial.id_condicion_decreto es
+    ondelete="SET NULL", así que reemplazar los tramos de un decreto ya
+    aplicado borraría en silencio el rastro de bajo qué tramo se calculó cada
+    ajuste histórico. Validado ANTES de mutar nada.
+    """
+    decreto = get_decreto_by_id(db, decreto_id)
+    if not decreto:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No existe el decreto con ID {decreto_id}"
+        )
+
+    ajustes_existentes = contar_ajustes_de_decreto(db, decreto_id)
+    if ajustes_existentes > 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"El decreto '{decreto.referencia_decreto}' ya generó "
+                f"{ajustes_existentes} ajuste(s) salarial(es) y no se puede editar "
+                "sin perder la trazabilidad de esos ajustes. Registrá un decreto "
+                "nuevo si hace falta corregir algo."
+            ),
+        )
+
+    decreto_mismo_anio = db.query(DecretoIncrementoSalarial).filter(
+        and_(
+            DecretoIncrementoSalarial.anio == data.anio,
+            DecretoIncrementoSalarial.id != decreto_id,
+        )
+    ).first()
+    if decreto_mismo_anio:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Ya existe un decreto para el año {data.anio} (ID: {decreto_mismo_anio.id})"
+        )
+
+    decreto.anio = data.anio
+    decreto.nuevo_smn = data.nuevo_smn
+    decreto.fecha_vigencia = data.fecha_vigencia
+    decreto.referencia_decreto = data.referencia_decreto
+
+    # Reemplazo completo de tramos. Seguro acá: ya se confirmó arriba que no
+    # hay ningún AjusteSalarial apuntando a los tramos actuales, así que el
+    # delete-orphan de esta reasignación no orfaniza ninguna auditoría.
+    decreto.condiciones = [
+        CondicionDecreto(
+            orden=cond.orden,
+            salario_desde=cond.salario_desde,
+            salario_hasta=cond.salario_hasta,
+            porcentaje_incremento=cond.porcentaje_incremento,
+        )
+        for cond in data.condiciones
+    ]
+
+    db.commit()
+    db.refresh(decreto)
+    return decreto
 
 
 def calcular_porcentaje_incremento(

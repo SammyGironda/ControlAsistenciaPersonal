@@ -190,6 +190,16 @@ class DecretoCreate(DecretoBase):
     )
 
 
+class DecretoUpdate(DecretoCreate):
+    """
+    Schema para editar un decreto existente: mismo shape que la creación
+    (reemplaza cabecera + tramos completos). El servicio rechaza la edición
+    con 400 si el decreto ya generó algún ajuste salarial — ver
+    `services.actualizar_decreto`.
+    """
+    pass
+
+
 class DecretoResponse(DecretoBase):
     """Schema de respuesta de decreto."""
     id: int

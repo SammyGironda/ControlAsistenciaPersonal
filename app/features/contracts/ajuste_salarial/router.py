@@ -10,9 +10,17 @@ porque esos GET no tienen otro consumidor — el frontend no tenía cliente de e
 módulo, y el único uso de parametro_impuesto en el backend es la vista SQL
 v_saldo_impuestos_planilla, que lee la tabla directamente y no por HTTP.
 
-Los endpoints de ajustes (salvo POST /) y los de decretos siguen sin guard
-(fuera de alcance de ese cambio). Ojo con POST /decretos, que es escritura de
-datos salariales y está abierto.
+Ajustes y decretos también quedaron cerrados (2026-08-20): escritura (crear
+ajuste, crear/editar decreto, aplicar decreto) admin, salvo crear ajuste
+individual que además admite rrhh; lectura admin+rrhh en todo el módulo, mismo
+criterio que parametros-impuesto (datos salariales, sin otro consumidor en el
+frontend). PUT /decretos/{id} y GET /decretos/{id}/ajustes son nuevos.
+
+⚠️ No hay cliente ni botón en el frontend para POST /decretos/{id}/aplicar:
+aplicar_decreto_anual no es idempotente (dos ejecuciones duplican ajustes por
+empleado) y un decreto con fecha_vigencia futura nunca sincroniza
+empleado.salario_base (el worker que debía hacerlo ya no existe). Ver
+CLAUDE.md, sección de la pantalla de decretos, antes de exponerlo.
 """
 
 from typing import List, Optional
@@ -28,6 +36,7 @@ from app.features.contracts.ajuste_salarial.schemas import (
     AjusteSalarialCreate,
     AjusteSalarialResponse,
     DecretoCreate,
+    DecretoUpdate,
     DecretoResponse,
     ParametroImpuestoCreate,
     ParametroImpuestoResponse,
@@ -73,7 +82,8 @@ def create_ajuste_salarial(
     "/empleado/{empleado_id}/historial",
     response_model=List[AjusteSalarialResponse],
     summary="Historial de ajustes de un empleado",
-    description="Retorna el historial completo de ajustes salariales"
+    description="Retorna el historial completo de ajustes salariales",
+    dependencies=[Depends(require_roles("admin", "rrhh"))],
 )
 def get_historial_ajustes(
     empleado_id: int = Path(..., gt=0),
@@ -89,7 +99,8 @@ def get_historial_ajustes(
     "/empleado/{empleado_id}/vigente",
     response_model=Optional[AjusteSalarialResponse],
     summary="Último ajuste vigente",
-    description="Retorna el último ajuste salarial vigente del empleado"
+    description="Retorna el último ajuste salarial vigente del empleado",
+    dependencies=[Depends(require_roles("admin", "rrhh"))],
 )
 def get_ajuste_vigente(
     empleado_id: int = Path(..., gt=0),
@@ -108,7 +119,8 @@ def get_ajuste_vigente(
     response_model=DecretoResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Crear decreto",
-    description="Crea un nuevo decreto con sus tramos salariales"
+    description="Crea un nuevo decreto con sus tramos salariales",
+    dependencies=[Depends(require_admin)],
 )
 def create_decreto(
     data: DecretoCreate,
@@ -116,17 +128,40 @@ def create_decreto(
 ):
     """
     Crea un decreto de incremento salarial con sus condiciones (tramos).
-    
+
     El año debe ser único.
     """
     return services.create_decreto(db, data)
+
+
+@router.put(
+    "/decretos/{decreto_id}",
+    response_model=DecretoResponse,
+    summary="Editar decreto",
+    description="Reemplaza cabecera y tramos de un decreto. Bloqueado si ya generó ajustes.",
+    dependencies=[Depends(require_admin)],
+)
+def update_decreto(
+    data: DecretoUpdate,
+    decreto_id: int = Path(..., gt=0),
+    db: Session = Depends(get_db)
+):
+    """
+    Edita un decreto existente (cabecera + reemplazo completo de tramos).
+
+    Rechaza con 400 si el decreto ya generó algún AjusteSalarial: editar los
+    tramos en ese caso borraría la trazabilidad de bajo qué tramo se calculó
+    cada ajuste histórico (ver docstring de services.actualizar_decreto).
+    """
+    return services.actualizar_decreto(db, decreto_id, data)
 
 
 @router.get(
     "/decretos",
     response_model=List[DecretoResponse],
     summary="Listar decretos",
-    description="Obtiene todos los decretos ordenados por año descendente"
+    description="Obtiene todos los decretos ordenados por año descendente",
+    dependencies=[Depends(require_roles("admin", "rrhh"))],
 )
 def get_all_decretos(
     skip: int = Query(0, ge=0),
@@ -141,7 +176,8 @@ def get_all_decretos(
     "/decretos/{decreto_id}",
     response_model=DecretoResponse,
     summary="Obtener decreto por ID",
-    description="Retorna un decreto con todas sus condiciones"
+    description="Retorna un decreto con todas sus condiciones",
+    dependencies=[Depends(require_roles("admin", "rrhh"))],
 )
 def get_decreto(
     decreto_id: int = Path(..., gt=0),
@@ -161,7 +197,8 @@ def get_decreto(
     "/decretos/anio/{anio}",
     response_model=DecretoResponse,
     summary="Obtener decreto por año",
-    description="Retorna el decreto de un año específico"
+    description="Retorna el decreto de un año específico",
+    dependencies=[Depends(require_roles("admin", "rrhh"))],
 )
 def get_decreto_anio(
     anio: int = Path(..., ge=2000, le=2100),
@@ -175,6 +212,32 @@ def get_decreto_anio(
             detail=f"No existe decreto para el año {anio}"
         )
     return decreto
+
+
+@router.get(
+    "/decretos/{decreto_id}/ajustes",
+    response_model=List[AjusteSalarialResponse],
+    summary="Ajustes generados bajo un decreto",
+    description="Trazabilidad: lista los ajustes salariales generados bajo los tramos de este decreto",
+    dependencies=[Depends(require_roles("admin", "rrhh"))],
+)
+def get_ajustes_de_decreto(
+    decreto_id: int = Path(..., gt=0),
+    db: Session = Depends(get_db)
+):
+    """
+    Lista los AjusteSalarial generados bajo un decreto.
+
+    AjusteSalarial no tiene FK directa al decreto (sólo a CondicionDecreto),
+    así que el servicio resuelve el join de dos saltos.
+    """
+    decreto = services.get_decreto_by_id(db, decreto_id)
+    if not decreto:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No existe el decreto con ID {decreto_id}"
+        )
+    return services.get_ajustes_by_decreto(db, decreto_id)
 
 
 @router.post(
