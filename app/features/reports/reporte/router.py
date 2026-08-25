@@ -100,6 +100,7 @@ def generar_individual(
     "/{reporte_id:int}",
     response_model=ReporteResponse,
     summary="Obtener reporte por ID",
+    dependencies=[Depends(require_roles("admin", "rrhh"))],
 )
 def obtener_reporte(reporte_id: int, db: Session = Depends(get_db)):
     """Obtiene un registro de reporte por ID."""
@@ -111,6 +112,7 @@ def obtener_reporte(reporte_id: int, db: Session = Depends(get_db)):
     "/",
     response_model=List[ReporteResponse],
     summary="Listar reportes con filtros",
+    dependencies=[Depends(require_roles("admin", "rrhh"))],
 )
 def listar_reportes(
     tipo_reporte: Optional[TipoReporteEnum] = Query(None, description="Filtro por tipo de reporte"),
@@ -138,6 +140,7 @@ def listar_reportes(
     "/{reporte_id:int}",
     response_model=ReporteResponse,
     summary="Actualizar reporte",
+    dependencies=[Depends(require_admin)],
 )
 def actualizar_reporte(reporte_id: int, data: ReporteUpdate, db: Session = Depends(get_db)):
     """Actualiza datos editables de un reporte."""
@@ -149,6 +152,7 @@ def actualizar_reporte(reporte_id: int, data: ReporteUpdate, db: Session = Depen
     "/{reporte_id:int}",
     response_model=ReporteResponse,
     summary="Desactivar reporte (soft delete)",
+    dependencies=[Depends(require_admin)],
 )
 def eliminar_reporte(reporte_id: int, db: Session = Depends(get_db)):
     """Realiza soft delete del reporte."""
@@ -172,6 +176,10 @@ def eliminar_reporte_permanente(reporte_id: int, db: Session = Depends(get_db)):
 @router.get(
     "/{reporte_id:int}/descargar",
     summary="Descargar archivo generado",
+    # Mismo guard que la lectura de metadatos, y por una razon mas fuerte: esto
+    # entrega el XLSX/PDF fisico. El de planilla trae los salarios individuales
+    # de todos los empleados, y el ID es incremental.
+    dependencies=[Depends(require_roles("admin", "rrhh"))],
 )
 def descargar_reporte(reporte_id: int, db: Session = Depends(get_db)):
     """Descarga el archivo fisico del reporte generado."""
